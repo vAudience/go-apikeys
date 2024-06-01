@@ -15,6 +15,7 @@ var (
 
 const (
 	METADATA_KEYS_SYSTEM_ADMIN = "systemadmin"
+	APIKEY_PREFIX              = "gak_"
 )
 
 func RegisterCRUDRoutes(group fiber.Router, repo Repository) {
@@ -48,7 +49,7 @@ func createAPIKey(repo Repository) fiber.Handler {
 			})
 		}
 
-		apiKey := generateAPIKey()
+		apiKey := GenerateAPIKey()
 		err := repo.SaveAPIKeyInfo(apiKey, &apiKeyInfo)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -134,10 +135,10 @@ func deleteAPIKey(repo Repository) fiber.Handler {
 	}
 }
 
-func generateAPIKey() string {
-	apiKey, err := gonanoid.New(32)
+func GenerateAPIKey() string {
+	apiKey, err := gonanoid.New(24)
 	if err != nil {
 		panic(err)
 	}
-	return apiKey
+	return APIKEY_PREFIX + apiKey
 }

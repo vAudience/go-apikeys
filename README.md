@@ -165,6 +165,7 @@ These helper functions make it convenient to access the API key information with
 ```json
 {
   "system_api_key": {
+    "apikey": "your-system-api-key",
     "user_id": "system",
     "org_id": "system",
     "name": "System API Key",
@@ -174,6 +175,7 @@ These helper functions make it convenient to access the API key information with
     }
   },
   "demo_api_key": {
+    "apikey": "your-demo-api-key",
     "user_id": "demo_user",
     "org_id": "demo_org",
     "name": "Demo API Key",
