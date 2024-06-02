@@ -4,7 +4,13 @@ go-apikeys is a middleware package for the Fiber web framework that handles API 
 
 ## Version
 
-v0.1.0
+v0.2.0
+
+## TODO
+
+- Add tests
+
+Here are the updated sections for the README.md file, including usage examples for all key features and methods:
 
 ## Features
 
@@ -17,14 +23,9 @@ v0.1.0
 - Rate limiting using Redis with configurable time spans, limits, and path matching
 - Ability to apply rate limits based on API key, user ID, or organization ID
 - Helper functions to easily access API key information within Fiber handlers
-
-## Installation
-
-To install the package, run the following command:
-
-```shell
-go get github.com/vaudience/go-apikeys
-```
+- Versioned search index for efficient searching of API keys
+- Helper methods to list all index versions and delete old index versions
+- Method to retrieve the current rate limit value for a specific rule and API key
 
 ## Usage
 
@@ -37,7 +38,7 @@ import (
     "time"
 
     "github.com/gofiber/fiber/v2"
-    "github.com/go-redis/redis/v9"
+    "github.com/redis/go-redis/v9"
     "github.com/vaudience/go-apikeys"
 )
 
@@ -53,13 +54,13 @@ func main() {
             Path:     "/api/v1/.*",
             Timespan: 1 * time.Minute,
             Limit:    100,
-            ApplyTo:  []string{"apikey"},
+            ApplyTo:  []string{apikeys.RateLimitRuleTargetAPIKey},
         },
         {
             Path:     "/api/v1/premium/.*",
             Timespan: 1 * time.Hour,
             Limit:    1000,
-            ApplyTo:  []string{"userID", "orgID"},
+            ApplyTo:  []string{apikeys.RateLimitRuleTargetUserID, apikeys.RateLimitRuleTargetOrgID}, 
         },
     }
 
@@ -73,13 +74,24 @@ func main() {
         RateLimitRules:  rateLimitRules,
     }
 
-    app.Use(apikeys.New(apiKeysConfig))
+    apikeysMiddleware, apikeysRepo, err := apikeys.New(apiKeysConfig)
+    if err != nil {
+      nuts.L.Errorf("Error creating apikeys middleware: %v", err)
+      return nil
+    }
+
+    err = apikeysRepo.LoadAllKeysFromJSONFile("apikeys.json")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    app.Use(apikeysMiddleware)
 
     app.Get("/protected", func(c *fiber.Ctx) error {
         userID := apikeys.UserID(c)
         orgID := apikeys.OrgID(c)
         metadata := apikeys.Metadata(c)
-
+        allInfo := apikeys.Get(c)
         // Use the retrieved values in your handler logic
 
         return c.SendString("Protected route accessed by user: " + userID)
@@ -88,15 +100,6 @@ func main() {
     app.Listen(":8080")
 }
 ```
-
-In this example:
-
-1. We create a new Fiber app and set up a Redis client.
-2. We define the rate limit rules using the `RateLimitRule` struct, specifying the path pattern, time span, limit, and attributes to apply the rate limit to.
-3. We configure the go-apikeys middleware using the `Config` struct, providing the header key, Redis client, system API key, enabling CRUD endpoints, and enabling rate limiting with the defined rules.
-4. We register the go-apikeys middleware using `app.Use(apikeys.New(apiKeysConfig))`.
-5. We define a protected route that can only be accessed with a valid API key. Inside the handler, we use the helper functions (`UserID`, `OrgID`, `Metadata`) to retrieve the API key information.
-6. Finally, we start the Fiber server.
 
 ## Configuration
 
@@ -116,10 +119,13 @@ The go-apikeys package uses a Redis repository to store and retrieve API key inf
 
 The `APIKeyInfo` struct represents the API key information stored in the repository and has the following fields:
 
+- `APIKey`: The API key itself.
 - `UserID`: The ID of the user associated with the API key.
 - `OrgID`: The ID of the organization associated with the API key.
 - `Name`: The name of the API key.
 - `Email`: The email associated with the API key.
+- `Roles`: An array of roles assigned to the API key.
+- `Rights`: An array of rights assigned to the API key.
 - `Metadata`: A map of additional metadata associated with the API key.
 
 ## Rate Limiting
@@ -150,36 +156,42 @@ The actual endpoints will depend on the `CRUDGroup` specified in the configurati
 
 The go-apikeys package provides several helper functions to easily access API key information within your Fiber handlers:
 
+- `Get(c *fiber.Ctx) *APIKeyInfo`: Retrieves the entire `APIKeyInfo` struct containing all the API key information.
 - `UserID(c *fiber.Ctx) string`: Retrieves the user ID associated with the API key.
 - `APIKey(c *fiber.Ctx) string`: Retrieves the API key itself.
 - `OrgID(c *fiber.Ctx) string`: Retrieves the organization ID associated with the API key.
 - `Name(c *fiber.Ctx) string`: Retrieves the name associated with the API key.
 - `Email(c *fiber.Ctx) string`: Retrieves the email associated with the API key.
 - `Metadata(c *fiber.Ctx) map[string]any`: Retrieves the metadata associated with the API key.
-- `Get(c *fiber.Ctx) *APIKeyContext`: Retrieves the entire `APIKeyContext` struct containing all the API key information.
 
 These helper functions make it convenient to access the API key information within your Fiber handlers without having to manually retrieve it from `fiber.Ctx.Locals`.
 
 ## Example JSON apikeys file
 
+Here's an example of a JSON file (`apikeys.json`) containing API key information:
+
 ```json
 {
   "system_api_key": {
-    "apikey": "your-system-api-key",
+    "api_key": "system_api_key",
     "user_id": "system",
     "org_id": "system",
     "name": "System API Key",
     "email": "system@example.com",
+    "roles": ["admin"],
+    "rights": ["all"],
     "metadata": {
       "systemadmin": true
     }
   },
   "demo_api_key": {
-    "apikey": "your-demo-api-key",
+    "api_key": "demo_api_key",
     "user_id": "demo_user",
     "org_id": "demo_org",
     "name": "Demo API Key",
     "email": "demo@example.com",
+    "roles": ["demo"],
+    "rights": ["read"],
     "metadata": {
       "demo": true
     }
@@ -187,20 +199,9 @@ These helper functions make it convenient to access the API key information with
 }
 ```
 
-code snippet to load apikeys from JSON file
+In this example, the JSON file contains two API keys: a system API key and a demo API key. Each API key has various fields such as `api_key`, `user_id`, `org_id`, `name`, `email`, `roles`, `rights`, and `metadata`.
 
-```go
-    repo := apikeys.NewRedisRepository(redisClient)
-
-    err := repo.LoadAllKeysFromJSONFile("apikeys.json")
-    if err != nil {
-        panic(err)
-    }
-```
-
-## TODO
-
-- Add tests
+You can load the API keys from this JSON file using the `LoadAllKeysFromJSONFile` method of the Redis repository.
 
 ## Contributing
 

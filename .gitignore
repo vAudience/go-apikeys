@@ -20,3 +20,6 @@
 # Go workspace file
 go.work
 go.work.sum
+
+code2markdown.sh
+go-apikeys-code.md

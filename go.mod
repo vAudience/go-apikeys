@@ -3,9 +3,9 @@ module github.com/vaudience/go-apikeys
 go 1.22.0
 
 require (
-	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gofiber/fiber/v2 v2.52.4
 	github.com/matoous/go-nanoid/v2 v2.1.0
+	github.com/redis/go-redis/v9 v9.0.2
 )
 
 require (

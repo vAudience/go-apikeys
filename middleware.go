@@ -4,8 +4,8 @@ package apikeys
 import (
 	"errors"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -23,17 +23,8 @@ var (
 	ErrRateLimitExceeded          = errors.New(ERROR_RATE_LIMIT_EXCEEDED)
 )
 
-type APIKeyContext struct {
-	APIKey   string
-	UserID   string
-	OrgID    string
-	Name     string
-	Email    string
-	Metadata map[string]any
-}
-
 func UserID(c *fiber.Ctx) string {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
 	}
@@ -41,7 +32,7 @@ func UserID(c *fiber.Ctx) string {
 }
 
 func APIKey(c *fiber.Ctx) string {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
 	}
@@ -49,7 +40,7 @@ func APIKey(c *fiber.Ctx) string {
 }
 
 func OrgID(c *fiber.Ctx) string {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
 	}
@@ -57,7 +48,7 @@ func OrgID(c *fiber.Ctx) string {
 }
 
 func Name(c *fiber.Ctx) string {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
 	}
@@ -65,7 +56,7 @@ func Name(c *fiber.Ctx) string {
 }
 
 func Email(c *fiber.Ctx) string {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
 	}
@@ -73,23 +64,26 @@ func Email(c *fiber.Ctx) string {
 }
 
 func Metadata(c *fiber.Ctx) map[string]any {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return nil
 	}
 	return apiKeyCtx.Metadata
 }
 
-func Get(c *fiber.Ctx) *APIKeyContext {
-	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyContext)
+func Get(c *fiber.Ctx) *APIKeyInfo {
+	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return nil
 	}
 	return apiKeyCtx
 }
 
-func New(config *Config) fiber.Handler {
-	repo := NewRedisRepository(config.RedisClient)
+func New(config *Config) (fiber.Handler, *RedisRepository, error) {
+	repo, err := NewRedisRepository(config.RedisClient)
+	if err != nil {
+		return nil, nil, err
+	}
 	var rateLimiter *RateLimiter
 	if config.EnableRateLimit {
 		rateLimiter = NewRateLimiter(config.RedisClient, config.RateLimitRules)
@@ -124,17 +118,8 @@ func New(config *Config) fiber.Handler {
 			}
 		}
 
-		apiKeyCtx := &APIKeyContext{
-			APIKey:   apiKey,
-			UserID:   apiKeyInfo.UserID,
-			OrgID:    apiKeyInfo.OrgID,
-			Name:     apiKeyInfo.Name,
-			Email:    apiKeyInfo.Email,
-			Metadata: apiKeyInfo.Metadata,
-		}
-
-		c.Locals(LOCALS_KEY_APIKEYS, apiKeyCtx)
+		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
 
 		return c.Next()
-	}
+	}, repo, nil
 }

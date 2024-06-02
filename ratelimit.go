@@ -8,13 +8,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
-	REDIS_KEY_RATELIMIT_PREFIX = "ratelimit"
-	// REDIS_KEY_SEPARATOR        = ":"
+	RATELIMITER_REDIS_KEY_RATELIMIT_PREFIX = "go-apikeys-ratelimiter"
+	RATELIMITER_REDIS_KEY_SEPARATOR        = ":"
+)
+
+type RateLimitRuleTarget string
+
+const (
+	RateLimitRuleTargetAPIKey RateLimitRuleTarget = "apikey"
+	RateLimitRuleTargetUserID RateLimitRuleTarget = "userID"
+	RateLimitRuleTargetOrgID  RateLimitRuleTarget = "orgID"
 )
 
 type RateLimiter struct {
@@ -46,11 +54,11 @@ func (r *RateLimiter) Allow(c *fiber.Ctx) (bool, error) {
 		for _, applyTo := range rule.ApplyTo {
 			var key string
 			switch applyTo {
-			case "apikey":
+			case RateLimitRuleTargetAPIKey:
 				key = apiKeyCtx.APIKey
-			case "userID":
+			case RateLimitRuleTargetUserID:
 				key = apiKeyCtx.UserID
-			case "orgID":
+			case RateLimitRuleTargetOrgID:
 				key = apiKeyCtx.OrgID
 			default:
 				continue
@@ -74,10 +82,9 @@ func (r *RateLimiter) checkRateLimit(key string, timespan time.Duration, limit i
 	redisKey := assembleRateLimitKey(key)
 
 	tx := r.client.TxPipeline()
-	defer tx.Close()
 
 	tx.ZRemRangeByScore(context.Background(), redisKey, "0", strconv.FormatInt(now-int64(timespan), 10))
-	tx.ZAdd(context.Background(), redisKey, &redis.Z{Score: float64(now), Member: strconv.FormatInt(now, 10)})
+	tx.ZAdd(context.Background(), redisKey, redis.Z{Score: float64(now), Member: strconv.FormatInt(now, 10)})
 	tx.Expire(context.Background(), redisKey, timespan)
 
 	_, err := tx.Exec(context.Background())
@@ -93,6 +100,62 @@ func (r *RateLimiter) checkRateLimit(key string, timespan time.Duration, limit i
 	return count <= int64(limit), nil
 }
 
+func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePath string) (int64, error) {
+	for _, rule := range r.rules {
+		if rule.Path != rulePath {
+			continue
+		}
+
+		var values []int64
+
+		for _, applyTo := range rule.ApplyTo {
+			var key string
+			switch applyTo {
+			case RateLimitRuleTargetAPIKey:
+				key = apiKeyInfo.APIKey
+			case RateLimitRuleTargetUserID:
+				key = apiKeyInfo.UserID
+			case RateLimitRuleTargetOrgID:
+				key = apiKeyInfo.OrgID
+			default:
+				continue
+			}
+
+			value, err := r.getCurrentValue(key, rule.Timespan)
+			if err != nil {
+				return 0, err
+			}
+			values = append(values, value)
+		}
+
+		if len(values) > 0 {
+			return values[0], nil
+		}
+	}
+
+	return 0, nil
+}
+
+func (r *RateLimiter) GetCurrentValueByContext(c *fiber.Ctx, rulePath string) (int64, error) {
+	apiKeyInfo := Get(c)
+	if apiKeyInfo == nil {
+		return 0, nil
+	}
+	return r.GetCurrentValueByAPIKeyInfo(apiKeyInfo, rulePath)
+}
+
+func (r *RateLimiter) getCurrentValue(key string, timespan time.Duration) (int64, error) {
+	now := time.Now().UnixNano()
+	redisKey := assembleRateLimitKey(key)
+
+	count, err := r.client.ZCount(context.Background(), redisKey, strconv.FormatInt(now-int64(timespan), 10), "+inf").Result()
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 func assembleRateLimitKey(key string) string {
-	return strings.Join([]string{REDIS_KEY_RATELIMIT_PREFIX, key}, REDIS_KEY_SEPARATOR)
+	return strings.Join([]string{RATELIMITER_REDIS_KEY_RATELIMIT_PREFIX, key}, RATELIMITER_REDIS_KEY_SEPARATOR)
 }
