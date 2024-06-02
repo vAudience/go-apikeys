@@ -2,6 +2,12 @@
 
 go-apikeys is a middleware package for the Fiber web framework that handles API key management, rate limiting, and CRUD operations for REST APIs. It provides a convenient way to authenticate and authorize API requests based on API keys stored in a Redis repository.
 
+## Installation
+
+```bash
+go get -u github.com/vaudience/go-apikeys@v0.2.0
+```
+
 ## Version
 
 v0.2.0
@@ -54,13 +60,13 @@ func main() {
             Path:     "/api/v1/.*",
             Timespan: 1 * time.Minute,
             Limit:    100,
-            ApplyTo:  []string{apikeys.RateLimitRuleTargetAPIKey},
+            ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
         },
         {
             Path:     "/api/v1/premium/.*",
             Timespan: 1 * time.Hour,
             Limit:    1000,
-            ApplyTo:  []string{apikeys.RateLimitRuleTargetUserID, apikeys.RateLimitRuleTargetOrgID}, 
+            ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetUserID, apikeys.RateLimitRuleTargetOrgID}, 
         },
     }
 
