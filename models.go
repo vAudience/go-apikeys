@@ -23,3 +23,7 @@ type RateLimitRule struct {
 	ApplyTo   []RateLimitRuleTarget
 	pathRegex *regexp.Regexp
 }
+
+func emptyLogger(logLevel string, logContent string) {}
+
+type LogAdapter func(logLevel string, logContent string)

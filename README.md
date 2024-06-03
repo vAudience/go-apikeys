@@ -10,13 +10,11 @@ go get -u github.com/vaudience/go-apikeys@v0.2.0
 
 ## Version
 
-v0.2.0
+v0.3.0
 
 ## TODO
 
 - Add tests
-
-Here are the updated sections for the README.md file, including usage examples for all key features and methods:
 
 ## Features
 
@@ -80,24 +78,25 @@ func main() {
         RateLimitRules:  rateLimitRules,
     }
 
-    apikeysMiddleware, apikeysRepo, err := apikeys.New(apiKeysConfig)
+    // instantiate your apikeys manager
+    apikeysManager, err := apikeys.New(apiKeysConfig)
     if err != nil {
       nuts.L.Errorf("Error creating apikeys middleware: %v", err)
       return nil
     }
 
-    err = apikeysRepo.LoadAllKeysFromJSONFile("apikeys.json")
+    err = apikeysManager.Repository().LoadAllKeysFromJSONFile("apikeys.json")
     if err != nil {
         log.Fatal(err)
     }
 
-    app.Use(apikeysMiddleware)
+    app.Use(apikeysManager.Middleware())
 
     app.Get("/protected", func(c *fiber.Ctx) error {
-        userID := apikeys.UserID(c)
-        orgID := apikeys.OrgID(c)
-        metadata := apikeys.Metadata(c)
-        allInfo := apikeys.Get(c)
+        userID := apikeysManager.UserID(c)
+        orgID := apikeysManager.OrgID(c)
+        metadata := apikeysManager.Metadata(c)
+        allInfo := apikeysManager.Get(c)
         // Use the retrieved values in your handler logic
 
         return c.SendString("Protected route accessed by user: " + userID)

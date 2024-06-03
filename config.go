@@ -14,4 +14,5 @@ type Config struct {
 	CRUDGroup       fiber.Router
 	EnableRateLimit bool
 	RateLimitRules  []RateLimitRule
+	Logger          LogAdapter
 }

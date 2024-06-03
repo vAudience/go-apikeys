@@ -18,15 +18,15 @@ const (
 	APIKEY_PREFIX              = "gak_"
 )
 
-func RegisterCRUDRoutes(group fiber.Router, repo Repository) {
-	group.Post("/", createAPIKey(repo))
-	group.Get("/:id", getAPIKey(repo))
-	group.Put("/:id", updateAPIKey(repo))
-	group.Delete("/:id", deleteAPIKey(repo))
+func RegisterCRUDRoutes(group fiber.Router, apikeyManager *APIKeyManager) {
+	group.Post("/apikeys", createAPIKey(apikeyManager))
+	group.Get("/apikeys/:id", getAPIKey(apikeyManager))
+	group.Put("/apikeys/:id", updateAPIKey(apikeyManager))
+	group.Delete("/apikeys/:id", deleteAPIKey(apikeyManager))
 }
 
-func isSystemAdmin(c *fiber.Ctx) bool {
-	apiKeyCtx := Get(c)
+func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
+	apiKeyCtx := apikeyManager.Get(c)
 	if apiKeyCtx == nil {
 		return false
 	}
@@ -34,9 +34,9 @@ func isSystemAdmin(c *fiber.Ctx) bool {
 	return ok && systemAdmin.(bool)
 }
 
-func createAPIKey(repo Repository) fiber.Handler {
+func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if !isSystemAdmin(c) {
+		if !isSystemAdmin(c, apikeyManager) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
@@ -50,7 +50,7 @@ func createAPIKey(repo Repository) fiber.Handler {
 		}
 
 		apiKey := GenerateAPIKey()
-		err := repo.SetAPIKeyInfo(&apiKeyInfo)
+		err := apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
@@ -63,16 +63,16 @@ func createAPIKey(repo Repository) fiber.Handler {
 	}
 }
 
-func getAPIKey(repo Repository) fiber.Handler {
+func getAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if !isSystemAdmin(c) {
+		if !isSystemAdmin(c, apikeyManager) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
 		}
 
 		apiKey := c.Params("id")
-		apiKeyInfo, err := repo.GetAPIKeyInfo(apiKey)
+		apiKeyInfo, err := apikeyManager.repo.GetAPIKeyInfo(apiKey)
 		if err != nil {
 			if err == ErrAPIKeyNotFound {
 				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -88,9 +88,9 @@ func getAPIKey(repo Repository) fiber.Handler {
 	}
 }
 
-func updateAPIKey(repo Repository) fiber.Handler {
+func updateAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if !isSystemAdmin(c) {
+		if !isSystemAdmin(c, apikeyManager) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
@@ -103,7 +103,7 @@ func updateAPIKey(repo Repository) fiber.Handler {
 			})
 		}
 
-		err := repo.SetAPIKeyInfo(&apiKeyInfo)
+		err := apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
@@ -114,16 +114,16 @@ func updateAPIKey(repo Repository) fiber.Handler {
 	}
 }
 
-func deleteAPIKey(repo Repository) fiber.Handler {
+func deleteAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if !isSystemAdmin(c) {
+		if !isSystemAdmin(c, apikeyManager) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
 		}
 
 		apiKey := c.Params("id")
-		err := repo.DeleteAPIKeyInfo(apiKey)
+		err := apikeyManager.repo.DeleteAPIKeyInfo(apiKey)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),

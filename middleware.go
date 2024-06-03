@@ -3,6 +3,7 @@ package apikeys
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
@@ -23,7 +24,14 @@ var (
 	ErrRateLimitExceeded          = errors.New(ERROR_RATE_LIMIT_EXCEEDED)
 )
 
-func UserID(c *fiber.Ctx) string {
+type APIKeyManager struct {
+	config  *Config
+	logger  LogAdapter
+	repo    *RedisRepository
+	limiter *RateLimiter
+}
+
+func (m *APIKeyManager) UserID(c *fiber.Ctx) string {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
@@ -31,7 +39,7 @@ func UserID(c *fiber.Ctx) string {
 	return apiKeyCtx.UserID
 }
 
-func APIKey(c *fiber.Ctx) string {
+func (m *APIKeyManager) APIKey(c *fiber.Ctx) string {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
@@ -39,7 +47,7 @@ func APIKey(c *fiber.Ctx) string {
 	return apiKeyCtx.APIKey
 }
 
-func OrgID(c *fiber.Ctx) string {
+func (m *APIKeyManager) OrgID(c *fiber.Ctx) string {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
@@ -47,7 +55,7 @@ func OrgID(c *fiber.Ctx) string {
 	return apiKeyCtx.OrgID
 }
 
-func Name(c *fiber.Ctx) string {
+func (m *APIKeyManager) Name(c *fiber.Ctx) string {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
@@ -55,7 +63,7 @@ func Name(c *fiber.Ctx) string {
 	return apiKeyCtx.Name
 }
 
-func Email(c *fiber.Ctx) string {
+func (m *APIKeyManager) Email(c *fiber.Ctx) string {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return ""
@@ -63,7 +71,7 @@ func Email(c *fiber.Ctx) string {
 	return apiKeyCtx.Email
 }
 
-func Metadata(c *fiber.Ctx) map[string]any {
+func (m *APIKeyManager) Metadata(c *fiber.Ctx) map[string]any {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		return nil
@@ -71,29 +79,56 @@ func Metadata(c *fiber.Ctx) map[string]any {
 	return apiKeyCtx.Metadata
 }
 
-func Get(c *fiber.Ctx) *APIKeyInfo {
+func (m *APIKeyManager) Get(c *fiber.Ctx) *APIKeyInfo {
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
+		m.logger("ERROR", fmt.Sprintf("API key information not found in locals: %v", c.Locals(LOCALS_KEY_APIKEYS)))
+		return nil
+	}
+	if apiKeyCtx == nil {
+		m.logger("WARN", "API key information is nil")
 		return nil
 	}
 	return apiKeyCtx
 }
 
-func New(config *Config) (fiber.Handler, *RedisRepository, error) {
+func New(config *Config) (*APIKeyManager, error) {
+	logger := emptyLogger
+	if config.Logger != nil {
+		logger = config.Logger
+	}
+
 	repo, err := NewRedisRepository(config.RedisClient)
 	if err != nil {
-		return nil, nil, err
+		logger("FATAL", fmt.Sprintf("Failed to create a new Redis repository: %v", err))
+		return nil, err
 	}
-	var rateLimiter *RateLimiter
+
+	var limiter *RateLimiter
 	if config.EnableRateLimit {
-		rateLimiter = NewRateLimiter(config.RedisClient, config.RateLimitRules)
+		limiter = NewRateLimiter(config.RedisClient, config.RateLimitRules)
 	}
 
-	return func(c *fiber.Ctx) error {
-		apiKey := c.Get(config.HeaderKey, config.SystemAPIKey)
+	manager := &APIKeyManager{
+		config:  config,
+		logger:  logger,
+		repo:    repo,
+		limiter: limiter,
+	}
 
-		apiKeyInfo, err := repo.GetAPIKeyInfo(apiKey)
+	if config.EnableCRUD {
+		RegisterCRUDRoutes(config.CRUDGroup, manager)
+	}
+
+	return manager, nil
+}
+
+func (m *APIKeyManager) Middleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		apiKey := c.Get(m.config.HeaderKey)
+		apiKeyInfo, err := m.repo.GetAPIKeyInfo(apiKey)
 		if err != nil {
+			m.logger("DEBUG", fmt.Sprintf("Failed to retrieve API key information: (%v)", err))
 			if err == redis.Nil {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"error": ErrInvalidAPIKey.Error(),
@@ -104,8 +139,8 @@ func New(config *Config) (fiber.Handler, *RedisRepository, error) {
 			})
 		}
 
-		if config.EnableRateLimit {
-			allowed, err := rateLimiter.Allow(c)
+		if m.config.EnableRateLimit {
+			allowed, err := m.limiter.Allow(c, m)
 			if err != nil {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 					"error": ErrFailedToCheckRateLimit.Error(),
@@ -119,7 +154,26 @@ func New(config *Config) (fiber.Handler, *RedisRepository, error) {
 		}
 
 		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
-
 		return c.Next()
-	}, repo, nil
+	}
+}
+
+func (m *APIKeyManager) Config() *Config {
+	return m.config
+}
+
+func (m *APIKeyManager) Logger() LogAdapter {
+	return m.logger
+}
+
+func (m *APIKeyManager) Repository() *RedisRepository {
+	return m.repo
+}
+
+func (m *APIKeyManager) RateLimiter() *RateLimiter {
+	return m.limiter
+}
+
+func (m *APIKeyManager) SetLogger(logger LogAdapter) {
+	m.logger = logger
 }

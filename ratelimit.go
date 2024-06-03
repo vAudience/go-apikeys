@@ -40,8 +40,8 @@ func NewRateLimiter(client redis.UniversalClient, rules []RateLimitRule) *RateLi
 	}
 }
 
-func (r *RateLimiter) Allow(c *fiber.Ctx) (bool, error) {
-	apiKeyCtx := Get(c)
+func (r *RateLimiter) Allow(c *fiber.Ctx, apikeyManager *APIKeyManager) (bool, error) {
+	apiKeyCtx := apikeyManager.Get(c)
 	if apiKeyCtx == nil {
 		return false, nil
 	}
@@ -136,8 +136,8 @@ func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePa
 	return 0, nil
 }
 
-func (r *RateLimiter) GetCurrentValueByContext(c *fiber.Ctx, rulePath string) (int64, error) {
-	apiKeyInfo := Get(c)
+func (r *RateLimiter) GetCurrentValueByContext(c *fiber.Ctx, rulePath string, apikeyManager *APIKeyManager) (int64, error) {
+	apiKeyInfo := apikeyManager.Get(c)
 	if apiKeyInfo == nil {
 		return 0, nil
 	}

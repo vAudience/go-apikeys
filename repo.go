@@ -44,7 +44,7 @@ func NewRedisRepository(redisClient redis.UniversalClient) (*RedisRepository, er
 	// Check if our specific index version already exists
 	_, err := redisClient.Do(context.Background(), "FT.INFO", indexKey).Result()
 	if err != nil {
-		if err == redis.Nil {
+		if err == redis.Nil || err.Error() == "Unknown index name" {
 			// Create the index if it doesn't exist
 			_, err = redisClient.Do(context.Background(), "FT.CREATE", indexKey,
 				"ON", "JSON",
@@ -59,9 +59,11 @@ func NewRedisRepository(redisClient redis.UniversalClient) (*RedisRepository, er
 				"$.rights[*]", "AS", "rights", "TAG",
 			).Result()
 			if err != nil {
+				// log.Warnf("Failed to create search index[%s]: (%s)", indexKey, err.Error())
 				return nil, err
 			}
 		} else {
+			// log.Warnf("Failed to find search index[%s]: (%v)", indexKey, err.Error())
 			return nil, err
 		}
 	}
@@ -120,7 +122,6 @@ func (r *RedisRepository) DeleteOldIndexVersions(currentVersion string) error {
 
 func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
 	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKey)
-
 	// Retrieve the API key information as a JSON data type
 	data, err := r.client.Do(context.Background(), "JSON.GET", key).Result()
 	if err != nil {
@@ -129,14 +130,19 @@ func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
 		}
 		return nil, err
 	}
-
-	var apiKeyInfo APIKeyInfo
-	err = json.Unmarshal([]byte(data.(string)), &apiKeyInfo)
+	jsonItems, ok := data.(string)
+	if !ok {
+		return nil, ErrInvalidJSON
+	}
+	var apiKeyInfo []APIKeyInfo
+	err = json.Unmarshal([]byte(jsonItems), &apiKeyInfo)
 	if err != nil {
 		return nil, err
 	}
-
-	return &apiKeyInfo, nil
+	if len(apiKeyInfo) == 0 {
+		return nil, ErrAPIKeyNotFound
+	}
+	return &apiKeyInfo[0], nil
 }
 
 func (r *RedisRepository) SearchAPIKeys(query string) ([]*APIKeyInfo, error) {
