@@ -4,6 +4,7 @@ package apikeys
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
@@ -80,6 +81,9 @@ func (m *APIKeyManager) Metadata(c *fiber.Ctx) map[string]any {
 }
 
 func (m *APIKeyManager) Get(c *fiber.Ctx) *APIKeyInfo {
+	if c.Locals(LOCALS_KEY_APIKEYS) == nil {
+		return nil
+	}
 	apiKeyCtx, ok := c.Locals(LOCALS_KEY_APIKEYS).(*APIKeyInfo)
 	if !ok {
 		m.logger("ERROR", fmt.Sprintf("API key information not found in locals: %v", c.Locals(LOCALS_KEY_APIKEYS)))
@@ -125,6 +129,13 @@ func New(config *Config) (*APIKeyManager, error) {
 
 func (m *APIKeyManager) Middleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		for _, pattern := range m.config.IgnoreApiKeyForRoutePatterns {
+			ok, _ := regexp.MatchString(pattern, c.Path())
+			if ok {
+				m.logger("DEBUG", fmt.Sprintf("Ignoring API key for route: (%s)", c.Path()))
+				return c.Next()
+			}
+		}
 		apiKey := c.Get(m.config.HeaderKey)
 		apiKeyInfo, err := m.repo.GetAPIKeyInfo(apiKey)
 		if err != nil {

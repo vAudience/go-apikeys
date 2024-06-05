@@ -7,12 +7,13 @@ import (
 )
 
 type Config struct {
-	HeaderKey       string
-	RedisClient     redis.UniversalClient
-	SystemAPIKey    string
-	EnableCRUD      bool
-	CRUDGroup       fiber.Router
-	EnableRateLimit bool
-	RateLimitRules  []RateLimitRule
-	Logger          LogAdapter
+	HeaderKey                    string
+	IgnoreApiKeyForRoutePatterns []string
+	RedisClient                  redis.UniversalClient
+	SystemAPIKey                 string
+	EnableCRUD                   bool
+	CRUDGroup                    fiber.Router
+	EnableRateLimit              bool
+	RateLimitRules               []RateLimitRule
+	Logger                       LogAdapter
 }
