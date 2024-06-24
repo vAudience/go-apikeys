@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -134,15 +135,12 @@ func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
 	if !ok {
 		return nil, ErrInvalidJSON
 	}
-	var apiKeyInfo []APIKeyInfo
+	var apiKeyInfo APIKeyInfo
 	err = json.Unmarshal([]byte(jsonItems), &apiKeyInfo)
 	if err != nil {
 		return nil, err
 	}
-	if len(apiKeyInfo) == 0 {
-		return nil, ErrAPIKeyNotFound
-	}
-	return &apiKeyInfo[0], nil
+	return &apiKeyInfo, nil
 }
 
 func (r *RedisRepository) SearchAPIKeys(query string) ([]*APIKeyInfo, error) {
@@ -206,6 +204,7 @@ func (r *RedisRepository) SetAPIKeyInfo(apiKeyInfo *APIKeyInfo) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("SetAPIKeyInfo:(%s)->(%s)", key, string(data))
 
 	// Save the API key information as a JSON data type
 	err = r.client.Do(context.Background(), "JSON.SET", key, ".", string(data)).Err()
