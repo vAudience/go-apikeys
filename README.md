@@ -10,7 +10,7 @@ go get -u github.com/vaudience/go-apikeys@v0.2.0
 
 ## Version
 
-v0.3.0
+v0.3.2
 
 ## TODO
 

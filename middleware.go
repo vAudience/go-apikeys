@@ -4,6 +4,7 @@ package apikeys
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 
 	"github.com/gofiber/fiber/v2"
@@ -165,6 +166,7 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 		}
 
 		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
+		log.Printf("API key information: %v\n", apiKeyInfo)
 		return c.Next()
 	}
 }

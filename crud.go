@@ -3,6 +3,7 @@ package apikeys
 
 import (
 	"errors"
+	"log"
 
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -28,10 +29,21 @@ func RegisterCRUDRoutes(group fiber.Router, apikeyManager *APIKeyManager) {
 func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
 	apiKeyCtx := apikeyManager.Get(c)
 	if apiKeyCtx == nil {
+		// log.Println("API key not found in context")
 		return false
 	}
+	log.Printf("API key context: %v\n", apiKeyCtx)
 	systemAdmin, ok := apiKeyCtx.Metadata[METADATA_KEYS_SYSTEM_ADMIN]
-	return ok && systemAdmin.(bool)
+	if !ok {
+		// log.Printf("API key [METADATA_KEYS_SYSTEM_ADMIN] not found in context:%v\n", apiKeyCtx)
+		return false
+	}
+	isSysAdmin, ok := systemAdmin.(bool)
+	if !ok {
+		// log.Printf("API key is not a boolean:%v\n", systemAdmin)
+		return false
+	}
+	return isSysAdmin
 }
 
 func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
