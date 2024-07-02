@@ -62,6 +62,7 @@ func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 		}
 
 		apiKey := GenerateAPIKey()
+		apiKeyInfo.APIKey = apiKey
 		err := apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -69,9 +70,7 @@ func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 			})
 		}
 
-		return c.JSON(fiber.Map{
-			"api_key": apiKey,
-		})
+		return c.JSON(apiKeyInfo)
 	}
 }
 
