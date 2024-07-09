@@ -55,7 +55,7 @@ func (r *RateLimiter) Allow(c *fiber.Ctx, apikeyManager *APIKeyManager) (bool, e
 			var key string
 			switch applyTo {
 			case RateLimitRuleTargetAPIKey:
-				key = apiKeyCtx.APIKey
+				key = apiKeyCtx.APIKeyHash
 			case RateLimitRuleTargetUserID:
 				key = apiKeyCtx.UserID
 			case RateLimitRuleTargetOrgID:
@@ -112,7 +112,7 @@ func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePa
 			var key string
 			switch applyTo {
 			case RateLimitRuleTargetAPIKey:
-				key = apiKeyInfo.APIKey
+				key = apiKeyInfo.APIKeyHash
 			case RateLimitRuleTargetUserID:
 				key = apiKeyInfo.UserID
 			case RateLimitRuleTargetOrgID:

@@ -17,8 +17,8 @@ const (
 	REDIS_KEY_PREFIX                        = "go-apikeys"
 	REDIS_KEY_SEPARATOR                     = ":"
 	REDIS_KEYCOMPONENT_JSONENTITY           = "json"
-	REDIS_KEYCOMPONENT_SEARCH_INDEX         = "apikeys_index"
-	REDIS_KEYCOMPONENT_SEARCH_INDEX_VERSION = "1"
+	REDIS_KEYCOMPONENT_SEARCH_INDEX         = "searchindex_apikeys"
+	REDIS_KEYCOMPONENT_SEARCH_INDEX_VERSION = "2"
 )
 
 var (
@@ -51,7 +51,8 @@ func NewRedisRepository(redisClient redis.UniversalClient) (*RedisRepository, er
 				"ON", "JSON",
 				"PREFIX", "1", assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY)+REDIS_KEY_SEPARATOR,
 				"SCHEMA",
-				"$.api_key", "AS", "api_key", "TAG",
+				// "$.api_key", "AS", "api_key", "TAG",
+				"$.api_key_hash", "AS", "api_key_hash", "TAG",
 				"$.user_id", "AS", "user_id", "TAG",
 				"$.org_id", "AS", "org_id", "TAG",
 				"$.name", "AS", "name", "TEXT",
@@ -122,7 +123,11 @@ func (r *RedisRepository) DeleteOldIndexVersions(currentVersion string) error {
 }
 
 func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
-	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKey)
+	apiKeyHash, err := GenerateAPIKeyHash(apiKey)
+	if err != nil {
+		return nil, err
+	}
+	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKeyHash)
 	// Retrieve the API key information as a JSON data type
 	data, err := r.client.Do(context.Background(), "JSON.GET", key).Result()
 	if err != nil {
@@ -189,8 +194,12 @@ func (r *RedisRepository) SearchAPIKeys(query string) ([]*APIKeyInfo, error) {
 }
 
 func (r *RedisRepository) DeleteAPIKeyInfo(apiKey string) error {
-	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKey)
-	_, err := r.client.Del(context.Background(), key).Result()
+	apiKeyHash, err := GenerateAPIKeyHash(apiKey)
+	if err != nil {
+		return err
+	}
+	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKeyHash)
+	_, err = r.client.Del(context.Background(), key).Result()
 	if err != nil {
 		return err
 	}
@@ -199,7 +208,7 @@ func (r *RedisRepository) DeleteAPIKeyInfo(apiKey string) error {
 }
 
 func (r *RedisRepository) SetAPIKeyInfo(apiKeyInfo *APIKeyInfo) error {
-	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKeyInfo.APIKey)
+	key := assembleRedisKey(REDIS_KEYCOMPONENT_JSONENTITY, apiKeyInfo.APIKeyHash)
 	data, err := json.Marshal(apiKeyInfo)
 	if err != nil {
 		return err

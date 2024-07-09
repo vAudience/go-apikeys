@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -62,15 +63,25 @@ func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 		}
 
 		apiKey := GenerateAPIKey()
-		apiKeyInfo.APIKey = apiKey
-		err := apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
+		hash, err := GenerateAPIKeyHash(apiKey)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		}
-
-		return c.JSON(apiKeyInfo)
+		apiKeyInfo.APIKeyHash = hash
+		// first 3 and last 3 characters of the API key
+		apiKeyInfo.APIKeyHint = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
+		err = apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		// do not store the clear API key in the database, but return it to the caller (once)
+		apiKeyInfo.APIKey = apiKey
+		callerInfo := apiKeyInfo.Filter(true, false)
+		return c.JSON(callerInfo)
 	}
 }
 
@@ -151,4 +162,15 @@ func GenerateAPIKey() string {
 		panic(err)
 	}
 	return APIKEY_PREFIX + apiKey
+}
+
+func GenerateAPIKeyHash(apiKey string) (string, error) {
+	// Generate a bcrypt hash
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert the byte slice to a string and return
+	return string(hashBytes), nil
 }

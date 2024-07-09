@@ -5,12 +5,12 @@ go-apikeys is a middleware package for the Fiber web framework that handles API 
 ## Installation
 
 ```bash
-go get -u github.com/vaudience/go-apikeys@v0.2.0
+go get -u github.com/vaudience/go-apikeys@v0.3.4
 ```
 
 ## Version
 
-v0.3.2
+v0.3.4
 
 ## TODO
 
@@ -23,6 +23,7 @@ v0.3.2
 - Retrieving API key information from a Redis repository
 - Storing API key information in `fiber.Ctx.Locals` for easy access
 - Support for a system API key that can be added/overridden via configuration
+- APIKeys are bcrypt-hashed and stored in Redis
 - Optional CRUD endpoints for API key management (accessible only with a special "systemadmin" API key)
 - Rate limiting using Redis with configurable time spans, limits, and path matching
 - Ability to apply rate limits based on API key, user ID, or organization ID

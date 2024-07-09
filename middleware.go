@@ -46,7 +46,7 @@ func (m *APIKeyManager) APIKey(c *fiber.Ctx) string {
 	if !ok {
 		return ""
 	}
-	return apiKeyCtx.APIKey
+	return apiKeyCtx.APIKeyHash
 }
 
 func (m *APIKeyManager) OrgID(c *fiber.Ctx) string {
