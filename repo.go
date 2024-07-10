@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -123,7 +122,7 @@ func (r *RedisRepository) DeleteOldIndexVersions(currentVersion string) error {
 }
 
 func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
-	apiKeyHash, err := GenerateAPIKeyHash(apiKey)
+	apiKeyHash, _, err := GenerateAPIKeyHash(apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +131,7 @@ func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
 	data, err := r.client.Do(context.Background(), "JSON.GET", key).Result()
 	if err != nil {
 		if err == redis.Nil {
+			// fmt.Printf("API key not found: (%s) via key(%s)\n", apiKey, key)
 			return nil, ErrAPIKeyNotFound
 		}
 		return nil, err
@@ -194,7 +194,7 @@ func (r *RedisRepository) SearchAPIKeys(query string) ([]*APIKeyInfo, error) {
 }
 
 func (r *RedisRepository) DeleteAPIKeyInfo(apiKey string) error {
-	apiKeyHash, err := GenerateAPIKeyHash(apiKey)
+	apiKeyHash, _, err := GenerateAPIKeyHash(apiKey)
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (r *RedisRepository) SetAPIKeyInfo(apiKeyInfo *APIKeyInfo) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("SetAPIKeyInfo:(%s)->(%s)", key, string(data))
+	// log.Printf("SetAPIKeyInfo:(%s)->(%s)", key, string(data))
 
 	// Save the API key information as a JSON data type
 	err = r.client.Do(context.Background(), "JSON.SET", key, ".", string(data)).Err()

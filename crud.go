@@ -2,12 +2,13 @@
 package apikeys
 
 import (
+	"encoding/hex"
 	"errors"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
-	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/sha3"
 )
 
 var (
@@ -63,15 +64,14 @@ func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 		}
 
 		apiKey := GenerateAPIKey()
-		hash, err := GenerateAPIKeyHash(apiKey)
+		hash, hint, err := GenerateAPIKeyHash(apiKey)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		}
 		apiKeyInfo.APIKeyHash = hash
-		// first 3 and last 3 characters of the API key
-		apiKeyInfo.APIKeyHint = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
+		apiKeyInfo.APIKeyHint = hint
 		err = apikeyManager.repo.SetAPIKeyInfo(&apiKeyInfo)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -164,13 +164,14 @@ func GenerateAPIKey() string {
 	return APIKEY_PREFIX + apiKey
 }
 
-func GenerateAPIKeyHash(apiKey string) (string, error) {
-	// Generate a bcrypt hash
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-
+func GenerateAPIKeyHash(apiKey string) (hash string, hint string, err error) {
+	// Generate a sha3-512 hash of the API key
+	hashBytes := sha3.Sum512([]byte(apiKey))
+	// turn into string
+	hash = hex.EncodeToString(hashBytes[:])
+	// Generate a hint for the API key
+	// first 3 and last 3 characters of the API key
+	hint = apiKey[:3] + "..." + apiKey[len(apiKey)-3:]
 	// Convert the byte slice to a string and return
-	return string(hashBytes), nil
+	return hash, hint, nil
 }

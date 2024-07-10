@@ -4,7 +4,6 @@ package apikeys
 import (
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 
 	"github.com/gofiber/fiber/v2"
@@ -140,7 +139,6 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 		apiKey := c.Get(m.config.HeaderKey)
 		apiKeyInfo, err := m.repo.GetAPIKeyInfo(apiKey)
 		if err != nil {
-			m.logger("DEBUG", fmt.Sprintf("Failed to retrieve API key information: (%v)", err))
 			if err == redis.Nil {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"error": ErrInvalidAPIKey.Error(),
@@ -166,7 +164,7 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 		}
 
 		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
-		log.Printf("API key information: %v\n", apiKeyInfo)
+		// log.Printf("API key information: %v\n", apiKeyInfo)
 		return c.Next()
 	}
 }

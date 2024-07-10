@@ -5,12 +5,12 @@ go-apikeys is a middleware package for the Fiber web framework that handles API 
 ## Installation
 
 ```bash
-go get -u github.com/vaudience/go-apikeys@v0.3.4
+go get -u github.com/vaudience/go-apikeys@v0.3.6
 ```
 
 ## Version
 
-v0.3.4
+v0.3.5
 
 ## TODO
 
@@ -178,8 +178,9 @@ Here's an example of a JSON file (`apikeys.json`) containing API key information
 
 ```json
 {
-  "system_api_key": {
-    "api_key": "system_api_key",
+  "system_api_key_hash": {
+    "api_key": "demo_api_key",
+    "api_key_hash": "system_api_key_hash",
     "user_id": "system",
     "org_id": "system",
     "name": "System API Key",
@@ -190,8 +191,9 @@ Here's an example of a JSON file (`apikeys.json`) containing API key information
       "systemadmin": true
     }
   },
-  "demo_api_key": {
+  "demo_api_key_hash": {
     "api_key": "demo_api_key",
+    "api_key_hash": "demo_api_key_hash",
     "user_id": "demo_user",
     "org_id": "demo_org",
     "name": "Demo API Key",
