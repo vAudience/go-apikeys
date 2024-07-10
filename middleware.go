@@ -144,7 +144,7 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 					"error": ErrInvalidAPIKey.Error(),
 				})
 			}
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrFailedToRetrieveAPIKeyInfo.Error(),
 			})
 		}
