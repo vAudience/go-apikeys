@@ -113,6 +113,15 @@ func New(config *Config) (*APIKeyManager, error) {
 		limiter = NewRateLimiter(config.RedisClient, config.RateLimitRules)
 	}
 
+	if config.ApiKeyLength < 6 || config.ApiKeyLength > 64 {
+		config.ApiKeyLength = APIKEY_RANDOMSTRING_LENGTH
+	}
+	if config.ApiKeyPrefix == "" {
+		config.ApiKeyPrefix = APIKEY_PREFIX
+	}
+	APIKEY_PREFIX = config.ApiKeyPrefix
+	APIKEY_RANDOMSTRING_LENGTH = config.ApiKeyLength
+
 	manager := &APIKeyManager{
 		config:  config,
 		logger:  logger,

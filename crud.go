@@ -12,13 +12,14 @@ import (
 )
 
 var (
-	ErrUnauthorized = errors.New("unauthorized")
-	ErrInvalidJSON  = errors.New("invalid JSON")
+	ErrUnauthorized            = errors.New("unauthorized")
+	ErrInvalidJSON             = errors.New("invalid JSON")
+	APIKEY_RANDOMSTRING_LENGTH = 32
+	APIKEY_PREFIX              = "gak_"
 )
 
 const (
 	METADATA_KEYS_SYSTEM_ADMIN = "systemadmin"
-	APIKEY_PREFIX              = "gak_"
 )
 
 func RegisterCRUDRoutes(group fiber.Router, apikeyManager *APIKeyManager) {
@@ -157,7 +158,7 @@ func deleteAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 }
 
 func GenerateAPIKey() string {
-	apiKey, err := gonanoid.New(24)
+	apiKey, err := gonanoid.New(APIKEY_RANDOMSTRING_LENGTH)
 	if err != nil {
 		panic(err)
 	}
@@ -165,6 +166,9 @@ func GenerateAPIKey() string {
 }
 
 func GenerateAPIKeyHash(apiKey string) (hash string, hint string, err error) {
+	if len(apiKey) < (APIKEY_RANDOMSTRING_LENGTH + len(APIKEY_PREFIX)) {
+		return "", "", errors.New("bad API key")
+	}
 	// Generate a sha3-512 hash of the API key
 	hashBytes := sha3.Sum512([]byte(apiKey))
 	// turn into string

@@ -8,6 +8,8 @@ import (
 
 type Config struct {
 	HeaderKey                    string
+	ApiKeyPrefix                 string
+	ApiKeyLength                 int
 	IgnoreApiKeyForRoutePatterns []string
 	RedisClient                  redis.UniversalClient
 	SystemAPIKey                 string

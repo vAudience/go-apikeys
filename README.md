@@ -5,12 +5,12 @@ go-apikeys is a middleware package for the Fiber web framework that handles API 
 ## Installation
 
 ```bash
-go get -u github.com/vaudience/go-apikeys@v0.3.6
+go get -u github.com/vaudience/go-apikeys@v0.3.7
 ```
 
 ## Version
 
-v0.3.5
+v0.3.7
 
 ## TODO
 
@@ -71,6 +71,8 @@ func main() {
 
     apiKeysConfig := &apikeys.Config{
         HeaderKey:       "X-API-Key",
+        ApiKeyLength:    32,
+        ApiKeyPrefix:   "gak_",
         RedisClient:     redisClient,
         SystemAPIKey:    "your-system-api-key",
         EnableCRUD:      true,
@@ -126,6 +128,8 @@ The go-apikeys package uses a Redis repository to store and retrieve API key inf
 The `APIKeyInfo` struct represents the API key information stored in the repository and has the following fields:
 
 - `APIKey`: The API key itself.
+- `APIKeyHash`: The sha3.512-hashed version of the API key.
+- `APIKeyHint`: The first and last 3 characters of the API key.
 - `UserID`: The ID of the user associated with the API key.
 - `OrgID`: The ID of the organization associated with the API key.
 - `Name`: The name of the API key.
@@ -181,6 +185,7 @@ Here's an example of a JSON file (`apikeys.json`) containing API key information
   "system_api_key_hash": {
     "api_key": "demo_api_key",
     "api_key_hash": "system_api_key_hash",
+    "api_key_hint": "sys...ash",
     "user_id": "system",
     "org_id": "system",
     "name": "System API Key",
@@ -194,6 +199,7 @@ Here's an example of a JSON file (`apikeys.json`) containing API key information
   "demo_api_key_hash": {
     "api_key": "demo_api_key",
     "api_key_hash": "demo_api_key_hash",
+    "api_key_hint": "dem...ash",
     "user_id": "demo_user",
     "org_id": "demo_org",
     "name": "Demo API Key",
