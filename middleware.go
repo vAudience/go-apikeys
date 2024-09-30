@@ -138,6 +138,8 @@ func New(config *Config) (*APIKeyManager, error) {
 
 func (m *APIKeyManager) Middleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: %s", c.Path()))
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: %v", m.config))
 		for _, pattern := range m.config.IgnoreApiKeyForRoutePatterns {
 			ok, _ := regexp.MatchString(pattern, c.Path())
 			if ok {
@@ -145,7 +147,9 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 				return c.Next()
 			}
 		}
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: AAAAAAAAA"))
 		apiKey := c.Get(m.config.HeaderKey)
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: BBBBBBBBB"))
 		apiKeyInfo, err := m.repo.GetAPIKeyInfo(apiKey)
 		if err != nil {
 			if err == redis.Nil {
@@ -157,7 +161,7 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 				"error": ErrFailedToRetrieveAPIKeyInfo.Error(),
 			})
 		}
-
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: CCCCCCCCC"))
 		if m.config.EnableRateLimit {
 			allowed, err := m.limiter.Allow(c, m)
 			if err != nil {
@@ -171,8 +175,9 @@ func (m *APIKeyManager) Middleware() fiber.Handler {
 				})
 			}
 		}
-
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: DDDDDDDD : %v", apiKeyInfo))
 		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
+		// m.logger("DEBUG", fmt.Sprintf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! API key middleware: EEEEEEEE : %v", apiKeyInfo))
 		// log.Printf("API key information: %v\n", apiKeyInfo)
 		return c.Next()
 	}

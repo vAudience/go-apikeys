@@ -4,7 +4,6 @@ package apikeys
 import (
 	"encoding/hex"
 	"errors"
-	"log"
 
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -33,9 +32,12 @@ func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
 	apiKeyCtx := apikeyManager.Get(c)
 	if apiKeyCtx == nil {
 		// log.Println("API key not found in context")
+		apikeyManager.logger("INFO", "NO ApiKeyInfo found in request context")
 		return false
 	}
-	log.Printf("API key context: %v\n", apiKeyCtx)
+	// log.Printf("API key context: %v\n", apiKeyCtx)
+	// content := fmt.Sprintf("MetaData: %v", apiKeyCtx.Metadata)
+	// apikeyManager.logger("INFO", content)
 	systemAdmin, ok := apiKeyCtx.Metadata[METADATA_KEYS_SYSTEM_ADMIN]
 	if !ok {
 		// log.Printf("API key [METADATA_KEYS_SYSTEM_ADMIN] not found in context:%v\n", apiKeyCtx)
@@ -52,6 +54,7 @@ func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
 func createAPIKey(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if !isSystemAdmin(c, apikeyManager) {
+			apikeyManager.logger("INFO", "Unauthorized: not a system admin")
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
