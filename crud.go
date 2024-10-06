@@ -4,6 +4,7 @@ package apikeys
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
@@ -28,6 +29,7 @@ func RegisterCRUDRoutes(group fiber.Router, apikeyManager *APIKeyManager) {
 	group.Get("/apikeys/:id", getAPIKey(apikeyManager))
 	group.Put("/apikeys/:id", updateAPIKey(apikeyManager))
 	group.Delete("/apikeys/:id", deleteAPIKey(apikeyManager))
+	apikeyManager.logger("INFO", "[GO-APIKEYS.RegisterCRUDRoutes] CRUD routes registered")
 }
 
 func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
@@ -37,17 +39,17 @@ func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
 		apikeyManager.logger("INFO", "NO ApiKeyInfo found in request context")
 		return false
 	}
-	// log.Printf("API key context: %v\n", apiKeyCtx)
+	apikeyManager.logger("INFO", fmt.Sprintf("[GO-APIKEYS.isSystemAdmin] API key context: %v\n", apiKeyCtx))
 	// content := fmt.Sprintf("MetaData: %v", apiKeyCtx.Metadata)
 	// apikeyManager.logger("INFO", content)
 	systemAdmin, ok := apiKeyCtx.Metadata[METADATA_KEYS_SYSTEM_ADMIN]
 	if !ok {
-		// log.Printf("API key [METADATA_KEYS_SYSTEM_ADMIN] not found in context:%v\n", apiKeyCtx)
+		apikeyManager.logger("INFO", fmt.Sprintf("[GO-APIKEYS.isSystemAdmin] API key [METADATA_KEYS_SYSTEM_ADMIN] not found in context:%v\n", apiKeyCtx))
 		return false
 	}
 	isSysAdmin, ok := systemAdmin.(bool)
 	if !ok {
-		// log.Printf("API key is not a boolean:%v\n", systemAdmin)
+		apikeyManager.logger("INFO", fmt.Sprintf("[GO-APIKEYS.isSystemAdmin] API key systemAdmin metadata is not a boolean:(%v)\n", systemAdmin))
 		return false
 	}
 	return isSysAdmin
@@ -70,13 +72,18 @@ func isSystemAdmin(c *fiber.Ctx, apikeyManager *APIKeyManager) bool {
 func searchAPIKeys(apikeyManager *APIKeyManager) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if !isSystemAdmin(c, apikeyManager) {
+			apiKeyCtx := apikeyManager.Get(c)
+			apikeyManager.logger("INFO", fmt.Sprintf("[GO-APIKEYS.searchAPIKeys] Unauthorized: not a system admin:%v\n", apiKeyCtx))
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": ErrUnauthorized.Error(),
 			})
 		}
-
 		query := c.Query("query")
-		apiKeyInfos, err := apikeyManager.repo.SearchAPIKeys(query)
+		if query == "" {
+			query = "*"
+		}
+		apikeyManager.logger("INFO", fmt.Sprintf("[GO-APIKEYS.searchAPIKeys] Searching for API keys with query: (%s)", query))
+		apiKeyInfos, err := apikeyManager.repo.SearchAPIKeys(query, apikeyManager.logger)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),

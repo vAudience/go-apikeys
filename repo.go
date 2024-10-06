@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -38,7 +39,7 @@ type RedisRepository struct {
 	client redis.UniversalClient
 }
 
-func NewRedisRepository(redisClient redis.UniversalClient) (*RedisRepository, error) {
+func NewRedisRepository(redisClient redis.UniversalClient, logger func(logLevel string, logContent string)) (*RedisRepository, error) {
 	indexKey := assembleRedisKey(REDIS_KEYCOMPONENT_SEARCH_INDEX, REDIS_KEYCOMPONENT_SEARCH_INDEX_VERSION)
 
 	// Check if our specific index version already exists
@@ -63,6 +64,7 @@ func NewRedisRepository(redisClient redis.UniversalClient) (*RedisRepository, er
 				// log.Warnf("Failed to create search index[%s]: (%s)", indexKey, err.Error())
 				return nil, err
 			}
+			logger("INFO", fmt.Sprintf("[GO-APIKEYS.NewRedisRepository] Created search index: (%s)", indexKey))
 		} else {
 			// log.Warnf("Failed to find search index[%s]: (%v)", indexKey, err.Error())
 			return nil, err
@@ -148,41 +150,26 @@ func (r *RedisRepository) GetAPIKeyInfo(apiKey string) (*APIKeyInfo, error) {
 	return &apiKeyInfo, nil
 }
 
-func (r *RedisRepository) SearchAPIKeys(query string) ([]*APIKeyInfo, error) {
+func (r *RedisRepository) SearchAPIKeys(query string, logger func(logLevel string, logContent string)) ([]*APIKeyInfo, error) {
 	// Perform the search query using FT.SEARCH
-	res, err := r.client.Do(context.Background(), "FT.SEARCH", REDIS_KEYCOMPONENT_SEARCH_INDEX, query).Result()
+
+	indexKey := assembleRedisKey(REDIS_KEYCOMPONENT_SEARCH_INDEX, REDIS_KEYCOMPONENT_SEARCH_INDEX_VERSION)
+	resultJsonStrings, err := r.handleRedisSearch(indexKey, query, 0, 1000, "org_id", "DESC")
 	if err != nil {
+		logger("ERROR", fmt.Sprintf("[GO-APIKEYS.SearchAPIKeys] Failed to search for API keys: (%s)", err.Error()))
 		return nil, err
 	}
 
+	// res, err := r.client.Do(context.Background(), "FT.SEARCH", indexKey, query).Result()
+
 	var apiKeyInfos []*APIKeyInfo
 
-	// Check if the result is of the expected type
-	searchResults, ok := res.([]any)
-	if !ok || len(searchResults) < 2 {
-		return apiKeyInfos, ErrUnexpectedSearchResultFormat
-	}
+	// logger("DEBUG", fmt.Sprintf("[GO-APIKEYS.SearchAPIKeys] Search results: (%v)", resultJsonStrings))
 
 	// Iterate over the search results
-	anySlice, ok := searchResults[1].([]any)
-	if !ok {
-		return apiKeyInfos, ErrUnexpectedSearchResultFormat
-	}
-	for _, doc := range anySlice {
-		// Check if the document is of the expected type
-		docFields, ok := doc.([]any)
-		if !ok || len(docFields) == 0 {
-			continue
-		}
-
-		// Check if the last field is of type string
-		jsonData, ok := docFields[len(docFields)-1].(string)
-		if !ok {
-			continue
-		}
-
+	for _, doc := range resultJsonStrings {
 		var apiKeyInfo APIKeyInfo
-		err := json.Unmarshal([]byte(jsonData), &apiKeyInfo)
+		err := json.Unmarshal([]byte(doc), &apiKeyInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -299,4 +286,83 @@ func (r *RedisRepository) getAllAPIKeys() ([]string, error) {
 	}
 
 	return apiKeys, nil
+}
+
+func (r *RedisRepository) handleRedisSearch(index string, query string, offset int, max int, sortByField string, sortByDirection string) (resultJsonStrings []string, err error) {
+	// logger.Debugf("[handleRedisSearch] Searching with query( FT.SEARCH (%s) (%s) NOCONTENT )", index, query)
+	if offset < 0 {
+		offset = 0
+	}
+	if max < 1 {
+		max = 1
+	}
+	ctx := context.Background()
+	answer, err := r.client.Do(ctx, "FT.SEARCH", index, query, "LIMIT", offset, max, "SORTBY", sortByField, sortByDirection).Result()
+	// logger.Debugf("query: (%s)", strings.Join([]string{"FT.SEARCH", index, query, "LIMIT", strconv.Itoa(offset), strconv.Itoa(max), "SORTBY", sortByField, sortByDirection}, " "))
+	// logger.Debugf("answer: (%v)", answer)
+	if err != nil {
+		// logger.Debugf("error: (%v)", err)
+		if err == redis.Nil {
+			// logger.Debugf("Nothing found with query( FT.SEARCH %s %s %s)", index, query, limit)
+			return resultJsonStrings, nil
+		}
+		// logger.Debugf("Failed to search with query( FT.SEARCH %s %s %s): %v", index, query, limit, err)
+		return resultJsonStrings, err
+	}
+	responseData, ok := answer.(map[any]any)
+	if !ok {
+		// logger.Errorf("unexpected result type 1: %T", answer)
+		return resultJsonStrings, fmt.Errorf("unexpected result type: %T", answer)
+	}
+	raw_total_results, ok := responseData["total_results"]
+	if !ok {
+		// logger.Errorf("unexpected result type 2: %T", responseData)
+		return resultJsonStrings, fmt.Errorf("unexpected result type: %T", responseData)
+	}
+	total_results, ok := raw_total_results.(int64)
+	if !ok {
+		// logger.Errorf("unexpected result type 3: %T", raw_total_results)
+		return resultJsonStrings, fmt.Errorf("unexpected result type: %T", raw_total_results)
+	}
+	if total_results == 0 {
+		// logger.Debugf("No resultJsonStrings found with query( FT.SEARCH %s %s)", index, query)
+		return resultJsonStrings, nil
+	}
+	raw_errors, ok := responseData["error"]
+	if ok {
+		return resultJsonStrings, fmt.Errorf("search error: %v", raw_errors)
+		// logger.Errorf("unexpected result type 4: %T", results)
+		// return resultJsonStrings, fmt.Errorf("search error: %v", raw_errors)
+	}
+	answer_results, ok := responseData["results"]
+	if !ok {
+		// logger.Errorf("unexpected result type 5: %T", responseData)
+		return resultJsonStrings, fmt.Errorf("unexpected result type: %T", responseData)
+	}
+	rawResults, ok := answer_results.([]any)
+	if !ok {
+		// logger.Errorf("unexpected result type 6: %T", answer_results)
+		return resultJsonStrings, fmt.Errorf("unexpected result type: %T", answer_results)
+	}
+	for _, rawResult := range rawResults {
+		result, ok := rawResult.(map[any]any)
+		if !ok {
+			// logger.Errorf("Result item format error: (%v)", rawResult)
+			continue
+		}
+		extraAttributes, ok := result["extra_attributes"].(map[any]any)
+		if !ok {
+			// logger.Errorf("Extra attributes format error: %v", result["extra_attributes"])
+			continue
+		}
+
+		jsonStr, ok := extraAttributes["$"].(string)
+		if !ok {
+			// logger.Errorf("Extra attributes '$' key error: %v", extraAttributes["$"])
+			continue
+		}
+		resultJsonStrings = append(resultJsonStrings, jsonStr)
+	}
+	// logger.Debugf("Found %d results with query( FT.SEARCH %s %s %s)", len(resultJsonStrings), index, query, limit)
+	return resultJsonStrings, nil
 }

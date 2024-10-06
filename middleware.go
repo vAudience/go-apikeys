@@ -30,6 +30,7 @@ type APIKeyManager struct {
 	logger  LogAdapter
 	repo    *RedisRepository
 	limiter *RateLimiter
+	Version string
 }
 
 func (m *APIKeyManager) UserID(c *fiber.Ctx) string {
@@ -102,7 +103,7 @@ func New(config *Config) (*APIKeyManager, error) {
 		logger = config.Logger
 	}
 
-	repo, err := NewRedisRepository(config.RedisClient)
+	repo, err := NewRedisRepository(config.RedisClient, logger)
 	if err != nil {
 		logger("FATAL", fmt.Sprintf("Failed to create a new Redis repository: %v", err))
 		return nil, err
@@ -127,12 +128,14 @@ func New(config *Config) (*APIKeyManager, error) {
 		logger:  logger,
 		repo:    repo,
 		limiter: limiter,
+		Version: Version,
 	}
 
 	if config.EnableCRUD {
 		RegisterCRUDRoutes(config.CRUDGroup, manager)
 	}
 
+	logger("INFO", fmt.Sprintf("[GO-APIKEYS.New] API key manager created (%s)", manager.Version))
 	return manager, nil
 }
 
