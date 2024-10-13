@@ -3,13 +3,12 @@ package apikeys
 
 import (
 	"context"
+	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/redis/go-redis/v9"
+	"github.com/itsatony/go-datarepository"
 )
 
 const (
@@ -26,28 +25,23 @@ const (
 )
 
 type RateLimiter struct {
-	client redis.UniversalClient
-	rules  []RateLimitRule
+	repo  datarepository.DataRepository
+	rules []RateLimitRule
 }
 
-func NewRateLimiter(client redis.UniversalClient, rules []RateLimitRule) *RateLimiter {
+func NewRateLimiter(repo datarepository.DataRepository, rules []RateLimitRule) *RateLimiter {
 	for i := range rules {
 		rules[i].pathRegex = regexp.MustCompile(rules[i].Path)
 	}
 	return &RateLimiter{
-		client: client,
-		rules:  rules,
+		repo:  repo,
+		rules: rules,
 	}
 }
 
-func (r *RateLimiter) Allow(c *fiber.Ctx, apikeyManager *APIKeyManager) (bool, error) {
-	apiKeyCtx := apikeyManager.Get(c)
-	if apiKeyCtx == nil {
-		return false, nil
-	}
-
+func (r *RateLimiter) Allow(ctx context.Context, framework HTTPFramework, req interface{}) (bool, error) {
 	for _, rule := range r.rules {
-		if !rule.pathRegex.MatchString(string(c.Request().URI().Path())) {
+		if !rule.pathRegex.MatchString(framework.GetRequestPath(req)) {
 			continue
 		}
 
@@ -55,16 +49,16 @@ func (r *RateLimiter) Allow(c *fiber.Ctx, apikeyManager *APIKeyManager) (bool, e
 			var key string
 			switch applyTo {
 			case RateLimitRuleTargetAPIKey:
-				key = apiKeyCtx.APIKeyHash
+				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).APIKeyHash
 			case RateLimitRuleTargetUserID:
-				key = apiKeyCtx.UserID
+				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).UserID
 			case RateLimitRuleTargetOrgID:
-				key = apiKeyCtx.OrgID
+				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).OrgID
 			default:
 				continue
 			}
 
-			allowed, err := r.checkRateLimit(key, rule.Timespan, rule.Limit)
+			allowed, err := r.checkRateLimit(ctx, key, rule.Timespan, rule.Limit)
 			if err != nil {
 				return false, err
 			}
@@ -77,30 +71,26 @@ func (r *RateLimiter) Allow(c *fiber.Ctx, apikeyManager *APIKeyManager) (bool, e
 	return true, nil
 }
 
-func (r *RateLimiter) checkRateLimit(key string, timespan time.Duration, limit int) (bool, error) {
-	now := time.Now().UnixNano()
+func (r *RateLimiter) checkRateLimit(ctx context.Context, key string, timespan time.Duration, limit int) (bool, error) {
 	redisKey := assembleRateLimitKey(key)
 
-	tx := r.client.TxPipeline()
-
-	tx.ZRemRangeByScore(context.Background(), redisKey, "0", strconv.FormatInt(now-int64(timespan), 10))
-	tx.ZAdd(context.Background(), redisKey, redis.Z{Score: float64(now), Member: strconv.FormatInt(now, 10)})
-	tx.Expire(context.Background(), redisKey, timespan)
-
-	_, err := tx.Exec(context.Background())
+	count, err := r.repo.AtomicIncrement(ctx, datarepository.SimpleIdentifier(redisKey))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to increment rate limit counter: %w", err)
 	}
 
-	count, err := r.client.ZCount(context.Background(), redisKey, "-inf", "+inf").Result()
-	if err != nil {
-		return false, err
+	if count == 1 {
+		// This is the first request, set the expiration
+		err = r.repo.SetExpiration(ctx, datarepository.SimpleIdentifier(redisKey), timespan)
+		if err != nil {
+			return false, fmt.Errorf("failed to set expiration: %w", err)
+		}
 	}
 
 	return count <= int64(limit), nil
 }
 
-func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePath string) (int64, error) {
+func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(ctx context.Context, apiKeyInfo *APIKeyInfo, rulePath string) (int64, error) {
 	for _, rule := range r.rules {
 		if rule.Path != rulePath {
 			continue
@@ -121,7 +111,7 @@ func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePa
 				continue
 			}
 
-			value, err := r.getCurrentValue(key, rule.Timespan)
+			value, err := r.getCurrentValue(ctx, key)
 			if err != nil {
 				return 0, err
 			}
@@ -136,20 +126,23 @@ func (r *RateLimiter) GetCurrentValueByAPIKeyInfo(apiKeyInfo *APIKeyInfo, rulePa
 	return 0, nil
 }
 
-func (r *RateLimiter) GetCurrentValueByContext(c *fiber.Ctx, rulePath string, apikeyManager *APIKeyManager) (int64, error) {
-	apiKeyInfo := apikeyManager.Get(c)
-	if apiKeyInfo == nil {
-		return 0, nil
-	}
-	return r.GetCurrentValueByAPIKeyInfo(apiKeyInfo, rulePath)
-}
+// func (r *RateLimiter) GetCurrentValueByContext(c *fiber.Ctx, rulePath string, apikeyManager *APIKeyManager) (int64, error) {
+// 	apiKeyInfo := apikeyManager.Get(c)
+// 	if apiKeyInfo == nil {
+// 		return 0, nil
+// 	}
+// 	return r.GetCurrentValueByAPIKeyInfo(apiKeyInfo, rulePath)
+// }
 
-func (r *RateLimiter) getCurrentValue(key string, timespan time.Duration) (int64, error) {
-	now := time.Now().UnixNano()
+func (r *RateLimiter) getCurrentValue(ctx context.Context, key string) (int64, error) {
 	redisKey := assembleRateLimitKey(key)
 
-	count, err := r.client.ZCount(context.Background(), redisKey, strconv.FormatInt(now-int64(timespan), 10), "+inf").Result()
+	var count int64
+	err := r.repo.Read(ctx, datarepository.SimpleIdentifier(redisKey), &count)
 	if err != nil {
+		if datarepository.IsNotFoundError(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 

@@ -1,8 +1,11 @@
 package apikeys
 
 import (
+	"errors"
 	"regexp"
 	"time"
+
+	"github.com/itsatony/go-datarepository"
 )
 
 type APIKeyInfo struct {
@@ -29,6 +32,10 @@ func (apikey *APIKeyInfo) Filter(includeSource bool, includeHash bool) *APIKeyIn
 	return &carbonCopy
 }
 
+func (a APIKeyInfo) String() string {
+	return a.APIKeyHash
+}
+
 type RateLimitRule struct {
 	Path      string
 	Timespan  time.Duration
@@ -40,3 +47,46 @@ type RateLimitRule struct {
 func emptyLogger(logLevel string, logContent string) {}
 
 type LogAdapter func(logLevel string, logContent string)
+
+const (
+	LOCALS_KEY_APIKEYS                    = "apikey"
+	ERROR_INVALID_API_KEY                 = "invalid API key"
+	ERROR_FAILED_TO_RETRIEVE_API_KEY_INFO = "failed to retrieve API key information"
+	ERROR_FAILED_TO_CHECK_RATE_LIMIT      = "failed to check rate limit"
+	ERROR_RATE_LIMIT_EXCEEDED             = "rate limit exceeded"
+	METADATA_KEYS_SYSTEM_ADMIN            = "systemadmin"
+)
+
+var (
+	APIKEY_RANDOMSTRING_LENGTH = 32
+	APIKEY_PREFIX              = "gak_"
+)
+
+var (
+	ErrInvalidAPIKey              = errors.New(ERROR_INVALID_API_KEY)
+	ErrFailedToRetrieveAPIKeyInfo = errors.New(ERROR_FAILED_TO_RETRIEVE_API_KEY_INFO)
+	ErrFailedToCheckRateLimit     = errors.New(ERROR_FAILED_TO_CHECK_RATE_LIMIT)
+	ErrRateLimitExceeded          = errors.New(ERROR_RATE_LIMIT_EXCEEDED)
+	ErrAPIKeyNotFound             = datarepository.ErrNotFound
+)
+
+// Helper functions to check error types
+func IsNotFoundError(err error) bool {
+	return datarepository.IsNotFoundError(err)
+}
+
+func IsAlreadyExistsError(err error) bool {
+	return datarepository.IsAlreadyExistsError(err)
+}
+
+func IsInvalidIdentifierError(err error) bool {
+	return datarepository.IsInvalidIdentifierError(err)
+}
+
+func IsInvalidInputError(err error) bool {
+	return datarepository.IsInvalidInputError(err)
+}
+
+func IsOperationFailedError(err error) bool {
+	return datarepository.IsOperationFailedError(err)
+}

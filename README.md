@@ -1,40 +1,30 @@
 # go-apikeys
 
-go-apikeys is a middleware package for the Fiber web framework that handles API key management, rate limiting, and CRUD operations for REST APIs. It provides a convenient way to authenticate and authorize API requests based on API keys stored in a Redis repository.
+go-apikeys is a flexible middleware package for Go web applications that handles API key management, rate limiting, and CRUD operations for REST APIs. It now supports multiple web frameworks and provides a convenient way to authenticate and authorize API requests based on API keys stored in a flexible repository.
+
+## Version
+
+v0.4.0
+
+## Features
+
+- Support for multiple web frameworks (including Fiber and Gorilla Mux)
+- Flexible repository backend using go-datarepository
+- API key management with CRUD operations
+- Rate limiting with configurable rules
+- Customizable logging
+- Swagger annotations for API documentation
+- Backwards compatibility with previous versions (see migration guide)
 
 ## Installation
 
 ```bash
-go get -u github.com/vaudience/go-apikeys@v0.3.7
+go get -u github.com/vaudience/go-apikeys@v0.4.0
 ```
-
-## Version
-
-v0.3.7
-
-## TODO
-
-- Add tests
-
-## Features
-
-- Initialization via a verbose configuration
-- Reading API key from request headers based on configuration
-- Retrieving API key information from a Redis repository
-- Storing API key information in `fiber.Ctx.Locals` for easy access
-- Support for a system API key that can be added/overridden via configuration
-- APIKeys are bcrypt-hashed and stored in Redis
-- Optional CRUD endpoints for API key management (accessible only with a special "systemadmin" API key)
-- Rate limiting using Redis with configurable time spans, limits, and path matching
-- Ability to apply rate limits based on API key, user ID, or organization ID
-- Helper functions to easily access API key information within Fiber handlers
-- Versioned search index for efficient searching of API keys
-- Helper methods to list all index versions and delete old index versions
-- Method to retrieve the current rate limit value for a specific rule and API key
 
 ## Usage
 
-Here's an example of how to use the go-apikeys package in your Fiber application:
+Here's an example of how to use the go-apikeys package:
 
 ```go
 package main
@@ -43,16 +33,19 @@ import (
     "time"
 
     "github.com/gofiber/fiber/v2"
-    "github.com/redis/go-redis/v9"
+    "github.com/itsatony/go-datarepository"
     "github.com/vaudience/go-apikeys"
 )
 
 func main() {
     app := fiber.New()
 
-    redisClient := redis.NewUniversalClient(&redis.UniversalOptions{
-        Addr: "localhost:6379",
+    repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
+        ConnectionString: "localhost:6379",
     })
+    if err != nil {
+        log.Fatal(err)
+    }
 
     rateLimitRules := []apikeys.RateLimitRule{
         {
@@ -61,48 +54,33 @@ func main() {
             Limit:    100,
             ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
         },
-        {
-            Path:     "/api/v1/premium/.*",
-            Timespan: 1 * time.Hour,
-            Limit:    1000,
-            ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetUserID, apikeys.RateLimitRuleTargetOrgID}, 
-        },
     }
 
     apiKeysConfig := &apikeys.Config{
         HeaderKey:       "X-API-Key",
         ApiKeyLength:    32,
-        ApiKeyPrefix:   "gak_",
-        RedisClient:     redisClient,
+        ApiKeyPrefix:    "gak_",
+        Repository:      repo,
         SystemAPIKey:    "your-system-api-key",
         EnableCRUD:      true,
-        CRUDGroup:       app.Group("/api/keys"),
         EnableRateLimit: true,
         RateLimitRules:  rateLimitRules,
+        Framework:       &apikeys.FiberFramework{},
     }
 
-    // instantiate your apikeys manager
     apikeysManager, err := apikeys.New(apiKeysConfig)
-    if err != nil {
-      nuts.L.Errorf("Error creating apikeys middleware: %v", err)
-      return nil
-    }
-
-    err = apikeysManager.Repository().LoadAllKeysFromJSONFile("apikeys.json")
     if err != nil {
         log.Fatal(err)
     }
 
     app.Use(apikeysManager.Middleware())
 
-    app.Get("/protected", func(c *fiber.Ctx) error {
-        userID := apikeysManager.UserID(c)
-        orgID := apikeysManager.OrgID(c)
-        metadata := apikeysManager.Metadata(c)
-        allInfo := apikeysManager.Get(c)
-        // Use the retrieved values in your handler logic
+    // Register CRUD routes
+    apikeys.RegisterCRUDRoutes(app.Group("/api"), apikeysManager)
 
-        return c.SendString("Protected route accessed by user: " + userID)
+    app.Get("/protected", func(c *fiber.Ctx) error {
+        apiKeyInfo := apikeysManager.Get(c)
+        return c.SendString("Protected route accessed by user: " + apiKeyInfo.UserID)
     })
 
     app.Listen(":8080")
@@ -111,116 +89,103 @@ func main() {
 
 ## Configuration
 
-The go-apikeys package is configured using the `Config` struct, which has the following fields:
+The `Config` struct allows you to customize the behavior of go-apikeys:
 
-- `HeaderKey`: The name of the header key used to retrieve the API key from the request (default: "X-API-Key").
-- `RedisClient`: A pre-connected go-redis `UniversalClient` for storing and retrieving API key information.
-- `SystemAPIKey`: An optional system API key that can be added/overridden via configuration.
-- `EnableCRUD`: A boolean flag indicating whether to enable CRUD endpoints for API key management (default: false).
-- `CRUDGroup`: A Fiber router group to which the CRUD endpoints will be attached (required if `EnableCRUD` is true).
-- `EnableRateLimit`: A boolean flag indicating whether to enable rate limiting (default: false).
+- `HeaderKey`: The name of the header key used to retrieve the API key from the request.
+- `ApiKeyLength`: The length of generated API keys.
+- `ApiKeyPrefix`: The prefix for generated API keys.
+- `Repository`: An implementation of `datarepository.DataRepository` for storing API keys.
+- `SystemAPIKey`: An optional system API key for administrative operations.
+- `EnableCRUD`: Enable or disable CRUD endpoints for API key management.
+- `EnableRateLimit`: Enable or disable rate limiting.
 - `RateLimitRules`: An array of `RateLimitRule` structs specifying the rate limit rules.
+- `Framework`: An implementation of the `HTTPFramework` interface for your chosen web framework.
 
-## Repository
+## API Documentation
 
-The go-apikeys package uses a Redis repository to store and retrieve API key information. The repository implementation is located in the `repo.go` file and satisfies the `Repository` interface.
+go-apikeys now includes Swagger annotations for all CRUD endpoints. To generate API documentation:
 
-The `APIKeyInfo` struct represents the API key information stored in the repository and has the following fields:
+1. Install swaggo: `go get -u github.com/swaggo/swag/cmd/swag`
+2. Run `swag init` in your project root
+3. Serve the generated Swagger UI in your application
 
-- `APIKey`: The API key itself.
-- `APIKeyHash`: The sha3.512-hashed version of the API key.
-- `APIKeyHint`: The first and last 3 characters of the API key.
-- `UserID`: The ID of the user associated with the API key.
-- `OrgID`: The ID of the organization associated with the API key.
-- `Name`: The name of the API key.
-- `Email`: The email associated with the API key.
-- `Roles`: An array of roles assigned to the API key.
-- `Rights`: An array of rights assigned to the API key.
-- `Metadata`: A map of additional metadata associated with the API key.
+## Migration Guide: v0.3.x to v0.4.0
 
-## Rate Limiting
+### Key Changes
 
-The go-apikeys package supports rate limiting using Redis with configurable time spans, limits, and path matching. The rate limiting rules are defined using the `RateLimitRule` struct, which has the following fields:
+1. Support for multiple web frameworks
+2. Migration from direct Redis usage to go-datarepository
+3. Updated configuration structure
+4. New abstraction layer for HTTP frameworks
 
-- `Path`: A regular expression pattern for matching the request path.
-- `Timespan`: The time span for the rate limit window.
-- `Limit`: The maximum number of requests allowed within the time span.
-- `ApplyTo`: An array of strings specifying the attributes to apply the rate limit to (e.g., "apikey", "userID", "orgID").
+### Step-by-Step Migration
 
-Rate limits can be applied based on the API key, user ID, or organization ID. Multiple rate limit rules can be defined, and each rule is evaluated independently.
+1. Update your imports:
+   ```go
+   import (
+       "github.com/vaudience/go-apikeys"
+       "github.com/itsatony/go-datarepository"
+   )
+   ```
 
-## CRUD Endpoints
+2. Update your configuration:
+   ```go
+   repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
+       ConnectionString: "localhost:6379",
+   })
+   if err != nil {
+       log.Fatal(err)
+   }
 
-If CRUD endpoints are enabled, the go-apikeys package provides the following endpoints for managing API keys:
+   apiKeysConfig := &apikeys.Config{
+       // ... other fields ...
+       Repository: repo,
+       Framework:  &apikeys.FiberFramework{}, // or &apikeys.GorillaMuxFramework{} for Gorilla Mux
+   }
+   ```
 
-- `POST /api/keys`: Create a new API key.
-- `GET /api/keys/:id`: Retrieve an API key by ID.
-- `PUT /api/keys/:id`: Update an API key by ID.
-- `DELETE /api/keys/:id`: Delete an API key by ID.
+3. Update CRUD operations:
+   - If you were using CRUD operations directly, they are now methods on the `APIKeyManager`:
+     ```go
+     // Old
+     apiKeyInfo, err := apikeyManager.repo.GetAPIKeyInfo(apiKey, "")
 
-The actual endpoints will depend on the `CRUDGroup` specified in the configuration.
+     // New
+     apiKeyInfo, err := apikeyManager.GetAPIKeyInfo(context.Background(), apiKey)
+     ```
 
-**Note:** The CRUD endpoints are protected and can only be accessed by providing a special API key with the metadata field "systemadmin" set to `true`. This ensures that only authorized users with the necessary privileges can perform these operations.
+4. Update rate limiting:
+   - Rate limiting now uses the go-datarepository package. The `RateLimiter` struct has been updated accordingly.
 
-## Helper Functions
+5. Update error handling:
+   - Use the new error types from go-datarepository:
+     ```go
+     if datarepository.IsNotFoundError(err) {
+         // handle not found error
+     }
+     ```
 
-The go-apikeys package provides several helper functions to easily access API key information within your Fiber handlers:
+6. Update middleware usage:
+   - The `Middleware()` function now returns an `interface{}` that needs to be adapted to your web framework.
 
-- `Get(c *fiber.Ctx) *APIKeyInfo`: Retrieves the entire `APIKeyInfo` struct containing all the API key information.
-- `UserID(c *fiber.Ctx) string`: Retrieves the user ID associated with the API key.
-- `APIKey(c *fiber.Ctx) string`: Retrieves the API key itself.
-- `OrgID(c *fiber.Ctx) string`: Retrieves the organization ID associated with the API key.
-- `Name(c *fiber.Ctx) string`: Retrieves the name associated with the API key.
-- `Email(c *fiber.Ctx) string`: Retrieves the email associated with the API key.
-- `Metadata(c *fiber.Ctx) map[string]any`: Retrieves the metadata associated with the API key.
+7. Update route registration:
+   - Use the new `RegisterCRUDRoutes` function to register CRUD routes:
+     ```go
+     apikeys.RegisterCRUDRoutes(app.Group("/api"), apikeysManager)
+     ```
 
-These helper functions make it convenient to access the API key information within your Fiber handlers without having to manually retrieve it from `fiber.Ctx.Locals`.
+### Breaking Changes
 
-## Example JSON apikeys file
+1. The `RedisClient` field in the `Config` struct has been removed and replaced with `Repository`.
+2. Direct Redis operations are no longer available. Use the provided methods or interact with the `Repository` instead.
+3. The `Framework` field in the `Config` struct is now required.
 
-Here's an example of a JSON file (`apikeys.json`) containing API key information:
-
-```json
-{
-  "system_api_key_hash": {
-    "api_key": "demo_api_key",
-    "api_key_hash": "system_api_key_hash",
-    "api_key_hint": "sys...ash",
-    "user_id": "system",
-    "org_id": "system",
-    "name": "System API Key",
-    "email": "system@example.com",
-    "roles": ["admin"],
-    "rights": ["all"],
-    "metadata": {
-      "systemadmin": true
-    }
-  },
-  "demo_api_key_hash": {
-    "api_key": "demo_api_key",
-    "api_key_hash": "demo_api_key_hash",
-    "api_key_hint": "dem...ash",
-    "user_id": "demo_user",
-    "org_id": "demo_org",
-    "name": "Demo API Key",
-    "email": "demo@example.com",
-    "roles": ["demo"],
-    "rights": ["read"],
-    "metadata": {
-      "demo": true
-    }
-  }
-}
-```
-
-In this example, the JSON file contains two API keys: a system API key and a demo API key. Each API key has various fields such as `api_key`, `user_id`, `org_id`, `name`, `email`, `roles`, `rights`, and `metadata`.
-
-You can load the API keys from this JSON file using the `LoadAllKeysFromJSONFile` method of the Redis repository.
+If you encounter any issues during migration, please refer to the updated documentation or open an issue on the GitHub repository.
 
 ## Contributing
 
-Contributions to the go-apikeys package are welcome! If you find a bug or have a feature request, please open an issue on the GitHub repository. If you'd like to contribute code, please fork the repository and submit a pull request.
+Contributions to the go-apikeys package are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-The go-apikeys package is open-source software licensed under the [MIT License](https://opensource.org/licenses/MIT).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
