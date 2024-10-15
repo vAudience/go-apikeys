@@ -54,3 +54,14 @@ func (g *GorillaMuxFramework) WrapMiddleware(next http.HandlerFunc) interface{} 
 		next(w, r)
 	}
 }
+
+// MuxMiddleware returns a Gorilla Mux-compatible middleware handler
+func (g *GorillaMuxFramework) MuxMiddleware(m *APIKeyManager) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := m.Middleware().(func(http.ResponseWriter, *http.Request))
+			handler(w, r)
+			next.ServeHTTP(w, r)
+		})
+	}
+}

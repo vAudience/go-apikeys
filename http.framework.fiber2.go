@@ -51,3 +51,14 @@ func (f *FiberFramework) WrapMiddleware(next http.HandlerFunc) interface{} {
 		return nil
 	}
 }
+
+// FiberMiddleware returns a Fiber-compatible middleware handler
+func (f *FiberFramework) FiberMiddleware(m *APIKeyManager) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		handler := m.Middleware().(func(*fiber.Ctx) error)
+		if err := handler(c); err != nil {
+			return err
+		}
+		return c.Next()
+	}
+}

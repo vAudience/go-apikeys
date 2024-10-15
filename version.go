@@ -1,3 +1,3 @@
 package apikeys
 
-var Version string = "v0.4.0"
+var Version string = "v0.4.2"

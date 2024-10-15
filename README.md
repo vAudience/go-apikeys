@@ -4,7 +4,7 @@ go-apikeys is a flexible middleware package for Go web applications that handles
 
 ## Version
 
-v0.4.0
+v0.4.2
 
 ## Features
 
@@ -24,68 +24,144 @@ go get -u github.com/vaudience/go-apikeys@v0.4.0
 
 ## Usage
 
-Here's an example of how to use the go-apikeys package:
+Here are examples of how to use the go-apikeys package with different web frameworks:
+
+### Fiber
 
 ```go
 package main
 
 import (
-    "time"
+	"log"
+	"time"
 
-    "github.com/gofiber/fiber/v2"
-    "github.com/itsatony/go-datarepository"
-    "github.com/vaudience/go-apikeys"
+	"github.com/gofiber/fiber/v2"
+	"github.com/itsatony/go-datarepository"
+	"github.com/vaudience/go-apikeys"
 )
 
 func main() {
-    app := fiber.New()
+	app := fiber.New()
 
-    repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
-        ConnectionString: "localhost:6379",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
+	repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
+		ConnectionString: "localhost:6379",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    rateLimitRules := []apikeys.RateLimitRule{
-        {
-            Path:     "/api/v1/.*",
-            Timespan: 1 * time.Minute,
-            Limit:    100,
-            ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
-        },
-    }
+	rateLimitRules := []apikeys.RateLimitRule{
+		{
+			Path:     "/api/v1/.*",
+			Timespan: 1 * time.Minute,
+			Limit:    100,
+			ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
+		},
+	}
 
-    apiKeysConfig := &apikeys.Config{
-        HeaderKey:       "X-API-Key",
-        ApiKeyLength:    32,
-        ApiKeyPrefix:    "gak_",
-        Repository:      repo,
-        SystemAPIKey:    "your-system-api-key",
-        EnableCRUD:      true,
-        EnableRateLimit: true,
-        RateLimitRules:  rateLimitRules,
-        Framework:       &apikeys.FiberFramework{},
-    }
+	fiberFramework := &apikeys.FiberFramework{}
 
-    apikeysManager, err := apikeys.New(apiKeysConfig)
-    if err != nil {
-        log.Fatal(err)
-    }
+	apiKeysConfig := &apikeys.Config{
+		HeaderKey:       "X-API-Key",
+		ApiKeyLength:    32,
+		ApiKeyPrefix:    "gak_",
+		Repository:      repo,
+		SystemAPIKey:    "your-system-api-key",
+		EnableCRUD:      true,
+		EnableRateLimit: true,
+		RateLimitRules:  rateLimitRules,
+		Framework:       fiberFramework,
+	}
 
-    app.Use(apikeysManager.Middleware())
+	apikeysManager, err := apikeys.New(apiKeysConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Register CRUD routes
-    apikeys.RegisterCRUDRoutes(app.Group("/api"), apikeysManager)
+	// Use the Fiber-specific middleware
+	app.Use(fiberFramework.FiberMiddleware(apikeysManager))
 
-    app.Get("/protected", func(c *fiber.Ctx) error {
-        apiKeyInfo := apikeysManager.Get(c)
-        return c.SendString("Protected route accessed by user: " + apiKeyInfo.UserID)
-    })
+	// Register CRUD routes
+	apikeys.RegisterCRUDRoutes(app.Group("/api"), apikeysManager)
 
-    app.Listen(":8080")
+	app.Get("/protected", func(c *fiber.Ctx) error {
+		apiKeyInfo := apikeysManager.Get(c)
+		return c.SendString("Protected route accessed by user: " + apiKeyInfo.UserID)
+	})
+
+	app.Listen(":8080")
 }
 ```
+
+### Gorilla Mux
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/itsatony/go-datarepository"
+	"github.com/vaudience/go-apikeys"
+)
+
+func main() {
+	r := mux.NewRouter()
+
+	repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
+		ConnectionString: "localhost:6379",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rateLimitRules := []apikeys.RateLimitRule{
+		{
+			Path:     "/api/v1/.*",
+			Timespan: 1 * time.Minute,
+			Limit:    100,
+			ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
+		},
+	}
+
+	muxFramework := &apikeys.GorillaMuxFramework{}
+
+	apiKeysConfig := &apikeys.Config{
+		HeaderKey:       "X-API-Key",
+		ApiKeyLength:    32,
+		ApiKeyPrefix:    "gak_",
+		Repository:      repo,
+		SystemAPIKey:    "your-system-api-key",
+		EnableCRUD:      true,
+		EnableRateLimit: true,
+		RateLimitRules:  rateLimitRules,
+		Framework:       muxFramework,
+	}
+
+	apikeysManager, err := apikeys.New(apiKeysConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use the Gorilla Mux-specific middleware
+	r.Use(muxFramework.MuxMiddleware(apikeysManager))
+
+	// Register CRUD routes
+	apikeys.RegisterCRUDRoutes(r.PathPrefix("/api").Subrouter(), apikeysManager)
+
+	r.HandleFunc("/protected", func(w http.ResponseWriter, r *http.Request) {
+		apiKeyInfo := apikeysManager.Get(r)
+		w.Write([]byte("Protected route accessed by user: " + apiKeyInfo.UserID))
+	})
+
+	http.ListenAndServe(":8080", r)
+}
+```
+
+These examples demonstrate how to use the new framework-specific middleware handlers with Fiber and Gorilla Mux. The `FiberMiddleware` and `MuxMiddleware` methods make it easy to integrate the API key management and rate limiting functionality into your web applications.
 
 ## Configuration
 
@@ -99,7 +175,47 @@ The `Config` struct allows you to customize the behavior of go-apikeys:
 - `EnableCRUD`: Enable or disable CRUD endpoints for API key management.
 - `EnableRateLimit`: Enable or disable rate limiting.
 - `RateLimitRules`: An array of `RateLimitRule` structs specifying the rate limit rules.
-- `Framework`: An implementation of the `HTTPFramework` interface for your chosen web framework.
+- `Framework`: An implementation of the `HTTPFramework` interface for your chosen web framework. go-apikeys provides built-in implementations for Fiber (`FiberFramework`) and Gorilla Mux (`GorillaMuxFramework`). These implementations also offer framework-specific middleware handlers for easier integration.
+
+### Framework-specific Configuration
+
+When configuring go-apikeys for use with a specific web framework, you should use the corresponding framework implementation:
+
+For Fiber:
+
+```go
+fiberFramework := &apikeys.FiberFramework{}
+apiKeysConfig := &apikeys.Config{
+    // ... other config options ...
+    Framework: fiberFramework,
+}
+```
+
+For Gorilla Mux:
+
+```go
+muxFramework := &apikeys.GorillaMuxFramework{}
+apiKeysConfig := &apikeys.Config{
+    // ... other config options ...
+    Framework: muxFramework,
+}
+```
+
+After creating the `APIKeyManager` with your configuration, you can use the framework-specific middleware handlers:
+
+For Fiber:
+
+```go
+app.Use(fiberFramework.FiberMiddleware(apikeysManager))
+```
+
+For Gorilla Mux:
+
+```go
+router.Use(muxFramework.MuxMiddleware(apikeysManager))
+```
+
+These framework-specific middleware handlers provide a seamless integration of the go-apikeys functionality into your web application, handling API key validation and rate limiting according to your configuration.
 
 ## API Documentation
 
