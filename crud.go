@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -30,11 +32,42 @@ func RegisterCRUDRoutes(router interface{}, apikeyManager *APIKeyManager) {
 		r.Get("/apikeys/:key_or_hash", getAPIKey(apikeyManager))
 		r.Put("/apikeys/:key_or_hash", updateAPIKey(apikeyManager))
 		r.Delete("/apikeys/:key_or_hash", deleteAPIKey(apikeyManager))
+	case fiber.Router:
+		r.Post("/apikeys", wrapHandler(createAPIKey(apikeyManager)))
+		r.Get("/apikeys/search", wrapHandler(searchAPIKeys(apikeyManager)))
+		r.Get("/apikeys/issystemadmin", wrapHandler(isSystemAdminHandler(apikeyManager)))
+		r.Get("/apikeys/:key_or_hash", wrapHandler(getAPIKey(apikeyManager)))
+		r.Put("/apikeys/:key_or_hash", wrapHandler(updateAPIKey(apikeyManager)))
+		r.Delete("/apikeys/:key_or_hash", wrapHandler(deleteAPIKey(apikeyManager)))
 	default:
 		apikeyManager.logger("ERROR", "[GO-APIKEYS.RegisterCRUDRoutes] Unsupported router type")
 		return
 	}
 	apikeyManager.logger("INFO", "[GO-APIKEYS.RegisterCRUDRoutes] CRUD routes registered")
+}
+
+// wrapHandler converts various handler types to a fiber.Handler
+func wrapHandler(handler interface{}) fiber.Handler {
+	switch h := handler.(type) {
+	case func(*fiber.Ctx) error:
+		return h
+	case func(http.ResponseWriter, *http.Request):
+		return func(c *fiber.Ctx) error {
+			handler := fasthttpadaptor.NewFastHTTPHandlerFunc(h)
+			handler(c.Context())
+			return nil
+		}
+	case http.HandlerFunc:
+		return func(c *fiber.Ctx) error {
+			handler := fasthttpadaptor.NewFastHTTPHandlerFunc(h)
+			handler(c.Context())
+			return nil
+		}
+	default:
+		return func(c *fiber.Ctx) error {
+			return fiber.ErrInternalServerError
+		}
+	}
 }
 
 func isSystemAdmin(req interface{}, apikeyManager *APIKeyManager) bool {
