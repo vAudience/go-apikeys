@@ -2,6 +2,7 @@ package apikeys
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/itsatony/go-datarepository"
@@ -118,24 +119,33 @@ func (m *APIKeyManager) Get(c interface{}) *APIKeyInfo {
 	return apiKeyInfo
 }
 
-func (m *APIKeyManager) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
-	apiKey := GenerateAPIKey()
-	hash, hint, err := GenerateAPIKeyHash(apiKey)
-	if err != nil {
-		return fmt.Errorf("error generating API key hash: %w", err)
+func (m *APIKeyManager) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) (*APIKeyInfo, error) {
+	var apiKey string
+	var hash string
+	var hint string
+	var err error
+	if apiKeyInfo == nil {
+		return nil, fmt.Errorf("API key info is required")
 	}
-	apiKeyInfo.APIKey = "" // we are NOT saving the real key in the DB!
+	if apiKeyInfo.APIKey != "" { // if the API key is provided, use it
+		apiKey = apiKeyInfo.APIKey
+	}
+	hash, hint, err = GenerateAPIKeyHash(apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("error generating API key hash: %w", err)
+	}
 	apiKeyInfo.APIKeyHash = hash
 	apiKeyInfo.APIKeyHint = hint
+	apiKeyInfo.APIKey = "" // we are NOT saving the real key in the DB!
 
-	err = m.repo.Create(ctx, datarepository.SimpleIdentifier(hash), apiKeyInfo)
+	err = m.repo.Upsert(ctx, datarepository.SimpleIdentifier(apiKeyInfo.APIKeyHash), apiKeyInfo)
 	if err != nil {
-		return fmt.Errorf("error creating API key: %w", err)
+		return nil, fmt.Errorf("error creating API key: %w", err)
 	}
 
 	// Set the clear API key for the caller (once)
 	apiKeyInfo.APIKey = apiKey
-	return nil
+	return apiKeyInfo, nil
 }
 
 func (m *APIKeyManager) GetAPIKeyInfo(ctx context.Context, apiKeyOrHash string) (*APIKeyInfo, error) {
@@ -202,22 +212,30 @@ func (m *APIKeyManager) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 	return nil
 }
 
-func (m *APIKeyManager) SearchAPIKeys(ctx context.Context, query string, offset, limit int) ([]*APIKeyInfo, error) {
-	results, err := m.repo.Search(ctx, query, offset, limit, "created_at", "DESC")
+func (m *APIKeyManager) SearchAPIKeys(ctx context.Context, offset, limit int) ([]*APIKeyInfo, error) {
+	// results, err := m.repo.Search(ctx, query, offset, limit, "created_at", "DESC")
+	// pattern := datarepository.RedisIdentifier{EntityPrefix: "", ID: "*"}
+	pattern := "*"
+	// m.logger("DEBUG", fmt.Sprintf("Search pattern: (%v)", pattern))
+	_, entities, err := m.repo.List(ctx, pattern)
 	if err != nil {
 		return nil, fmt.Errorf("error searching API keys: %w", err)
 	}
 
-	apiKeyInfos := make([]*APIKeyInfo, 0, len(results))
-	for _, result := range results {
+	apiKeyInfos := make([]*APIKeyInfo, 0, len(entities))
+	for _, entity := range entities {
+		m.logger("DEBUG", fmt.Sprintf("Entity: %v", entity))
 		var apiKeyInfo APIKeyInfo
-		err := m.repo.Read(ctx, result, &apiKeyInfo)
+		entityString, ok := entity.(string)
+		if !ok {
+			continue
+		}
+		err := json.Unmarshal([]byte(entityString), &apiKeyInfo)
 		if err != nil {
-			m.logger("WARN", fmt.Sprintf("Error reading API key info: %v", err))
 			continue
 		}
 		apiKeyInfos = append(apiKeyInfos, &apiKeyInfo)
 	}
-
+	// m.logger("DEBUG", fmt.Sprintf("(%d)Search results: %v", len(entities), apiKeyInfos))
 	return apiKeyInfos, nil
 }

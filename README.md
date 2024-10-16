@@ -4,7 +4,7 @@ go-apikeys is a flexible middleware package for Go web applications that handles
 
 ## Version
 
-v0.4.2
+v0.4.5
 
 ## Features
 
@@ -42,10 +42,11 @@ import (
 
 func main() {
 	app := fiber.New()
-
-	repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
-		ConnectionString: "localhost:6379",
-	})
+	apikeysLogger := function(logLevel string, logContent string) {
+		log.Println(logLevel + ": " + logContent)
+	}
+	config := datarepository.NewRedisConfig("single;redis_stack;;;;;;0;localhost:6379", "appName_apikeys", ":", apikeysLogger)
+	repo, err := datarepository.CreateDataRepository("redis", config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,9 +112,8 @@ import (
 func main() {
 	r := mux.NewRouter()
 
-	repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
-		ConnectionString: "localhost:6379",
-	})
+	config := datarepository.NewRedisConfig("single;redis_stack;;;;;;0;localhost:6379", "appName_apikeys", ":", apikeysLogger)
+  repo, err := datarepository.CreateDataRepository("redis", config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -246,9 +246,9 @@ go-apikeys now includes Swagger annotations for all CRUD endpoints. To generate 
 
 2. Update your configuration:
    ```go
-   repo, err := datarepository.CreateDataRepository("redis", datarepository.RedisConfig{
-       ConnectionString: "localhost:6379",
-   })
+	 
+	 config := datarepository.NewRedisConfig("single;redis_stack;;;;;;0;localhost:6379", "appName_apikeys", ":", apikeysLogger)
+   repo, err := datarepository.CreateDataRepository("redis", config)
    if err != nil {
        log.Fatal(err)
    }
