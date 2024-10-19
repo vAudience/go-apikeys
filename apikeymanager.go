@@ -129,6 +129,8 @@ func (m *APIKeyManager) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 	}
 	if apiKeyInfo.APIKey != "" { // if the API key is provided, use it
 		apiKey = apiKeyInfo.APIKey
+	} else {
+		apiKey = GenerateAPIKey()
 	}
 	hash, hint, err = GenerateAPIKeyHash(apiKey)
 	if err != nil {
