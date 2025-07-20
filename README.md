@@ -19,7 +19,7 @@ v0.4.5
 ## Installation
 
 ```bash
-go get -u github.com/vaudience/go-apikeys@v0.4.0
+go get -u github.com/vaudience/go-apikeys@v0.4.6
 ```
 
 ## Usage
