@@ -50,7 +50,7 @@ A production-ready, framework-agnostic API key authentication and management mid
 ## Installation
 
 ```bash
-go get github.com/vaudience/go-apikeys@v2.0.0
+go get github.com/vaudience/go-apikeys/v2@v2.0.0
 ```
 
 ### Dependencies
@@ -80,7 +80,7 @@ import (
     "net/http"
 
     "github.com/itsatony/go-datarepository"
-    "github.com/vaudience/go-apikeys"
+    apikeys "github.com/vaudience/go-apikeys/v2"
     "go.uber.org/zap"
 )
 
@@ -143,7 +143,7 @@ package main
 import (
     "github.com/gofiber/fiber/v2"
     "github.com/itsatony/go-datarepository"
-    "github.com/vaudience/go-apikeys"
+    apikeys "github.com/vaudience/go-apikeys/v2"
     "go.uber.org/zap"
 )
 
@@ -190,7 +190,7 @@ import (
 
     "github.com/gorilla/mux"
     "github.com/itsatony/go-datarepository"
-    "github.com/vaudience/go-apikeys"
+    apikeys "github.com/vaudience/go-apikeys/v2"
     "go.uber.org/zap"
 )
 
@@ -523,7 +523,7 @@ go tool cover -html=coverage.out
 **If you were NOT using rate limiting:**
 - No changes required! Update your dependency:
   ```bash
-  go get -u github.com/vaudience/go-apikeys@v2.0.0
+  go get -u github.com/vaudience/go-apikeys/v2@v2.0.0
   ```
 
 **If you were using rate limiting:**

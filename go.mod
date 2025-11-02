@@ -1,4 +1,4 @@
-module github.com/vaudience/go-apikeys
+module github.com/vaudience/go-apikeys/v2
 
 go 1.24.6
 

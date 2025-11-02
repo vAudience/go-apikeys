@@ -50,7 +50,7 @@ import (
     "github.com/itsatony/go-datarepository"
     "github.com/itsatony/gorly"
     "github.com/itsatony/gorly/stores"
-    "github.com/vaudience/go-apikeys"
+    apikeys "github.com/vaudience/go-apikeys/v2"
     "go.uber.org/zap"
 )
 

@@ -13,7 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/itsatony/go-datarepository"
-	apikeys "github.com/vaudience/go-apikeys"
+	apikeys "github.com/vaudience/go-apikeys/v2"
 	"go.uber.org/zap"
 )
 

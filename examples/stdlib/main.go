@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/itsatony/go-datarepository"
-	apikeys "github.com/vaudience/go-apikeys"
+	apikeys "github.com/vaudience/go-apikeys/v2"
 	"go.uber.org/zap"
 )
 
