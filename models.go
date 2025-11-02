@@ -1,26 +1,47 @@
+// Package apikeys provides API key authentication and management middleware for Go applications.
 package apikeys
 
 import (
-	"errors"
 	"regexp"
 	"time"
-
-	"github.com/itsatony/go-datarepository"
 )
 
+// APIKeyInfo represents the complete information about an API key.
+// This structure is used for both storage and API responses.
 type APIKeyInfo struct {
-	APIKey     string         `json:"api_key"`
-	APIKeyHash string         `json:"api_key_hash"`
-	APIKeyHint string         `json:"api_key_hint"`
-	UserID     string         `json:"user_id"`
-	OrgID      string         `json:"org_id"`
-	Name       string         `json:"name"`
-	Email      string         `json:"email"`
-	Roles      []string       `json:"roles"`
-	Rights     []string       `json:"rights"`
-	Metadata   map[string]any `json:"metadata"`
+	// APIKey is the plain-text API key (only populated on creation, never stored)
+	APIKey string `json:"api_key,omitempty"`
+
+	// APIKeyHash is the SHA3-512 hash of the API key (stored in repository)
+	APIKeyHash string `json:"api_key_hash"`
+
+	// APIKeyHint is a hint showing first/last characters (for user reference)
+	APIKeyHint string `json:"api_key_hint"`
+
+	// UserID identifies the user this API key belongs to (required)
+	UserID string `json:"user_id"`
+
+	// OrgID identifies the organization this API key belongs to (required)
+	OrgID string `json:"org_id"`
+
+	// Name is an optional human-readable name for the API key
+	Name string `json:"name,omitempty"`
+
+	// Email is the email address associated with this API key (optional)
+	Email string `json:"email,omitempty"`
+
+	// Roles contains the role names assigned to this API key
+	Roles []string `json:"roles,omitempty"`
+
+	// Rights contains specific permission strings
+	Rights []string `json:"rights,omitempty"`
+
+	// Metadata contains arbitrary key-value data (e.g., system_admin flag)
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// Filter creates a filtered copy of APIKeyInfo for API responses.
+// Use this to control whether sensitive data is included in responses.
 func (apikey *APIKeyInfo) Filter(includeSource bool, includeHash bool) *APIKeyInfo {
 	carbonCopy := *apikey
 	if !includeSource {
@@ -32,61 +53,26 @@ func (apikey *APIKeyInfo) Filter(includeSource bool, includeHash bool) *APIKeyIn
 	return &carbonCopy
 }
 
+// String returns the API key hash as the string representation.
+// This is safe to log and display.
 func (a APIKeyInfo) String() string {
 	return a.APIKeyHash
 }
 
+// RateLimitRule defines a rate limiting rule for API endpoints.
 type RateLimitRule struct {
-	Path      string
-	Timespan  time.Duration
-	Limit     int
-	ApplyTo   []RateLimitRuleTarget
+	// Path is a regex pattern matching request paths (e.g., "/api/.*")
+	Path string
+
+	// Timespan is the time window for rate limiting (e.g., 1 minute)
+	Timespan time.Duration
+
+	// Limit is the maximum number of requests allowed in the timespan
+	Limit int
+
+	// ApplyTo specifies what to rate limit (API key, user, org, IP)
+	ApplyTo []RateLimitRuleTarget
+
+	// pathRegex is the compiled regex pattern (internal use)
 	pathRegex *regexp.Regexp
-}
-
-func emptyLogger(logLevel string, logContent string) {}
-
-type LogAdapter func(logLevel string, logContent string)
-
-const (
-	LOCALS_KEY_APIKEYS                    = "apikey"
-	ERROR_INVALID_API_KEY                 = "invalid API key"
-	ERROR_FAILED_TO_RETRIEVE_API_KEY_INFO = "failed to retrieve API key information"
-	ERROR_FAILED_TO_CHECK_RATE_LIMIT      = "failed to check rate limit"
-	ERROR_RATE_LIMIT_EXCEEDED             = "rate limit exceeded"
-	METADATA_KEYS_SYSTEM_ADMIN            = "systemadmin"
-)
-
-var (
-	APIKEY_RANDOMSTRING_LENGTH = 32
-	APIKEY_PREFIX              = "gak_"
-)
-
-var (
-	ErrInvalidAPIKey              = errors.New(ERROR_INVALID_API_KEY)
-	ErrFailedToRetrieveAPIKeyInfo = errors.New(ERROR_FAILED_TO_RETRIEVE_API_KEY_INFO)
-	ErrFailedToCheckRateLimit     = errors.New(ERROR_FAILED_TO_CHECK_RATE_LIMIT)
-	ErrRateLimitExceeded          = errors.New(ERROR_RATE_LIMIT_EXCEEDED)
-	ErrAPIKeyNotFound             = datarepository.ErrNotFound
-)
-
-// Helper functions to check error types
-func IsNotFoundError(err error) bool {
-	return datarepository.IsNotFoundError(err)
-}
-
-func IsAlreadyExistsError(err error) bool {
-	return datarepository.IsAlreadyExistsError(err)
-}
-
-func IsInvalidIdentifierError(err error) bool {
-	return datarepository.IsInvalidIdentifierError(err)
-}
-
-func IsInvalidInputError(err error) bool {
-	return datarepository.IsInvalidInputError(err)
-}
-
-func IsOperationFailedError(err error) bool {
-	return datarepository.IsOperationFailedError(err)
 }

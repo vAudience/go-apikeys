@@ -1,60 +1,84 @@
+// Package apikeys provides API key authentication and management middleware for Go applications.
 package apikeys
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"net/http"
 
-	"github.com/itsatony/go-datarepository"
+	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 )
 
+// APIKeyManager orchestrates API key authentication and management.
+// This is the main entry point for the middleware.
 type APIKeyManager struct {
 	config    *Config
-	logger    LogAdapter
-	repo      datarepository.DataRepository
-	limiter   *RateLimiter
-	Version   string
+	logger    *zap.Logger
+	service   *APIKeyService
+	limiter   RateLimiterInterface
 	framework HTTPFramework
 }
 
+// New creates a new API key manager with the given configuration.
+// This validates the configuration and initializes all components.
 func New(config *Config) (*APIKeyManager, error) {
-	logger := emptyLogger
-	if config.Logger != nil {
-		logger = config.Logger
+	// Apply defaults
+	config.ApplyDefaults()
+
+	// Validate configuration
+	if err := config.Validate(); err != nil {
+		return nil, err
 	}
 
-	if config.Repository == nil {
-		return nil, fmt.Errorf("repository is required")
+	// Create repository adapter
+	repo, err := NewDataRepositoryAdapter(config.Repository)
+	if err != nil {
+		return nil, err
 	}
 
-	var limiter *RateLimiter
+	// Create service layer
+	service, err := NewAPIKeyService(repo, config.Logger, config.ApiKeyPrefix, config.ApiKeyLength)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create stub rate limiter if enabled
+	// TODO: Replace with production rate limiter when external package is ready
+	var limiter RateLimiterInterface
 	if config.EnableRateLimit {
-		limiter = NewRateLimiter(config.Repository, config.RateLimitRules)
-	}
-
-	if config.ApiKeyLength < 6 || config.ApiKeyLength > 64 {
-		config.ApiKeyLength = APIKEY_RANDOMSTRING_LENGTH
-	}
-	if config.ApiKeyPrefix == "" {
-		config.ApiKeyPrefix = APIKEY_PREFIX
-	}
-	APIKEY_PREFIX = config.ApiKeyPrefix
-	APIKEY_RANDOMSTRING_LENGTH = config.ApiKeyLength
-
-	if config.Framework == nil {
-		return nil, fmt.Errorf("HTTP framework is required")
+		limiter = NewStubRateLimiter(config.Logger)
 	}
 
 	manager := &APIKeyManager{
 		config:    config,
-		logger:    logger,
-		repo:      config.Repository,
+		logger:    config.Logger.Named(CLASS_APIKEY_MANAGER),
+		service:   service,
 		limiter:   limiter,
-		Version:   Version,
 		framework: config.Framework,
 	}
 
-	logger("INFO", fmt.Sprintf("[GO-APIKEYS.New] API key manager created (%s)", manager.Version))
+	// Log version information
+	LogVersionInfo(manager.logger)
+
+	manager.logger.Info("API key manager created",
+		zap.String("version", GetProjectVersion()),
+		zap.String("prefix", config.ApiKeyPrefix),
+		zap.Int("key_length", config.ApiKeyLength),
+		zap.Bool("crud_enabled", config.EnableCRUD),
+		zap.Bool("rate_limit_enabled", config.EnableRateLimit),
+		zap.Bool("bootstrap_enabled", config.EnableBootstrap))
+
+	// Run bootstrap if enabled
+	if config.EnableBootstrap {
+		bootstrapService := NewBootstrapService(service, config.BootstrapConfig, config.Logger)
+		_, err := bootstrapService.Bootstrap(context.Background())
+		if err != nil {
+			// Log error but don't fail - bootstrap may not be needed
+			manager.logger.Debug("Bootstrap not executed",
+				zap.Error(err))
+		}
+	}
+
 	return manager, nil
 }
 
@@ -106,138 +130,118 @@ func (m *APIKeyManager) Metadata(c interface{}) map[string]any {
 	return apiKeyInfo.Metadata
 }
 
+// Get retrieves the API key information from the request context.
+// Returns nil if no API key information is found in the context.
 func (m *APIKeyManager) Get(c interface{}) *APIKeyInfo {
-	value := m.framework.GetContextValue(c, LOCALS_KEY_APIKEYS)
+	// Determine which key to use based on framework type
+	// Fiber uses string keys (LOCALS_KEY_APIKEYS), stdlib uses typed keys (contextKeyAPIKeyInfo)
+	var value interface{}
+	switch m.framework.(type) {
+	case *FiberFramework:
+		// Fiber uses Locals() which requires string keys
+		value = m.framework.GetContextValue(c, LOCALS_KEY_APIKEYS)
+	default:
+		// Stdlib and Gorilla Mux use context.Context with typed keys
+		value = m.framework.GetContextValue(c, contextKeyAPIKeyInfo)
+	}
+
 	if value == nil {
 		return nil
 	}
 	apiKeyInfo, ok := value.(*APIKeyInfo)
 	if !ok {
-		m.logger("ERROR", fmt.Sprintf("API key information not found in context: %v", value))
+		m.logger.Error("API key information not found in context",
+			zap.Any("value", value))
 		return nil
 	}
 	return apiKeyInfo
 }
 
+// FiberMiddleware returns a type-safe Fiber middleware handler.
+// This is the recommended way to use the middleware with Fiber v2.
+//
+// Usage:
+//   app := fiber.New()
+//   app.Use(manager.FiberMiddleware())
+func (m *APIKeyManager) FiberMiddleware() fiber.Handler {
+	if _, ok := m.framework.(*FiberFramework); !ok {
+		m.logger.Warn("FiberMiddleware called but framework is not Fiber")
+	}
+	return m.fiberMiddleware()
+}
+
+// StdlibMiddleware returns a type-safe stdlib middleware handler.
+// This works with net/http and Gorilla Mux.
+//
+// Usage:
+//   // With net/http:
+//   http.Handle("/", manager.StdlibMiddleware()(myHandler))
+//
+//   // With Gorilla Mux:
+//   r := mux.NewRouter()
+//   r.Use(mux.MiddlewareFunc(func(next http.Handler) http.Handler {
+//       return manager.StdlibMiddleware()(next)
+//   }))
+func (m *APIKeyManager) StdlibMiddleware() func(http.Handler) http.Handler {
+	return m.standardMiddleware()
+}
+
+// Middleware returns a middleware handler for the configured framework.
+//
+// Deprecated: Use FiberMiddleware() or StdlibMiddleware() instead for type safety.
+// This method returns interface{} which requires type assertion and is error-prone.
+//
+// Migration path:
+//   // Old (requires type assertion):
+//   app.Use(manager.Middleware().(fiber.Handler))
+//
+//   // New (type-safe):
+//   app.Use(manager.FiberMiddleware())
+func (m *APIKeyManager) Middleware() interface{} {
+	switch m.framework.(type) {
+	case *FiberFramework:
+		return m.fiberMiddleware()
+	default:
+		return m.standardMiddleware()
+	}
+}
+
+// CreateAPIKey creates a new API key. Delegates to the service layer.
 func (m *APIKeyManager) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) (*APIKeyInfo, error) {
-	var apiKey string
-	var hash string
-	var hint string
-	var err error
-	if apiKeyInfo == nil {
-		return nil, fmt.Errorf("API key info is required")
-	}
-	if apiKeyInfo.APIKey != "" { // if the API key is provided, use it
-		apiKey = apiKeyInfo.APIKey
-	} else {
-		apiKey = GenerateAPIKey()
-	}
-	hash, hint, err = GenerateAPIKeyHash(apiKey)
-	if err != nil {
-		return nil, fmt.Errorf("error generating API key hash: %w", err)
-	}
-	apiKeyInfo.APIKeyHash = hash
-	apiKeyInfo.APIKeyHint = hint
-	apiKeyInfo.APIKey = "" // we are NOT saving the real key in the DB!
-
-	err = m.repo.Upsert(ctx, datarepository.SimpleIdentifier(apiKeyInfo.APIKeyHash), apiKeyInfo)
-	if err != nil {
-		return nil, fmt.Errorf("error creating API key: %w", err)
-	}
-
-	// Set the clear API key for the caller (once)
-	apiKeyInfo.APIKey = apiKey
-	return apiKeyInfo, nil
+	return m.service.CreateAPIKey(ctx, apiKeyInfo)
 }
 
+// GetAPIKeyInfo retrieves an API key by its plain key or hash. Delegates to the service layer.
 func (m *APIKeyManager) GetAPIKeyInfo(ctx context.Context, apiKeyOrHash string) (*APIKeyInfo, error) {
-	var apiKeyInfo APIKeyInfo
-	var identifier datarepository.EntityIdentifier
-
-	if IsApiKey(apiKeyOrHash) {
-		hash, _, err := GenerateAPIKeyHash(apiKeyOrHash)
-		if err != nil {
-			return nil, fmt.Errorf("error generating API key hash: %w", err)
-		}
-		identifier = datarepository.SimpleIdentifier(hash)
-	} else {
-		identifier = datarepository.SimpleIdentifier(apiKeyOrHash)
-	}
-
-	err := m.repo.Read(ctx, identifier, &apiKeyInfo)
-	if err != nil {
-		if datarepository.IsNotFoundError(err) {
-			return nil, ErrAPIKeyNotFound
-		}
-		return nil, fmt.Errorf("error retrieving API key info: %w", err)
-	}
-
-	return &apiKeyInfo, nil
+	return m.service.GetAPIKeyInfo(ctx, apiKeyOrHash)
 }
 
+// SetAPIKeyInfo updates an API key. Delegates to the service layer.
+//
+// Deprecated: Use UpdateAPIKey instead. This method is maintained for backward
+// compatibility but will be removed in v2.0.0.
+//
+// Migration path:
+//   // Old (deprecated):
+//   err := manager.SetAPIKeyInfo(ctx, apiKeyInfo)
+//
+//   // New (recommended):
+//   err := manager.UpdateAPIKey(ctx, apiKeyInfo)
 func (m *APIKeyManager) SetAPIKeyInfo(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
-	err := m.repo.Update(ctx, datarepository.SimpleIdentifier(apiKeyInfo.APIKeyHash), apiKeyInfo)
-	if err != nil {
-		return fmt.Errorf("error updating API key: %w", err)
-	}
-	return nil
+	return m.service.UpdateAPIKey(ctx, apiKeyInfo)
 }
 
+// UpdateAPIKey updates an API key. Delegates to the service layer.
 func (m *APIKeyManager) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
-	err := m.repo.Update(ctx, datarepository.SimpleIdentifier(apiKeyInfo.APIKeyHash), apiKeyInfo)
-	if err != nil {
-		return fmt.Errorf("error updating API key: %w", err)
-	}
-	return nil
+	return m.service.UpdateAPIKey(ctx, apiKeyInfo)
 }
 
+// DeleteAPIKey deletes an API key. Delegates to the service layer.
 func (m *APIKeyManager) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) error {
-	var identifier datarepository.EntityIdentifier
-
-	if IsApiKey(apiKeyOrHash) {
-		hash, _, err := GenerateAPIKeyHash(apiKeyOrHash)
-		if err != nil {
-			return fmt.Errorf("error generating API key hash: %w", err)
-		}
-		identifier = datarepository.SimpleIdentifier(hash)
-	} else {
-		identifier = datarepository.SimpleIdentifier(apiKeyOrHash)
-	}
-
-	err := m.repo.Delete(ctx, identifier)
-	if err != nil {
-		if datarepository.IsNotFoundError(err) {
-			return ErrAPIKeyNotFound
-		}
-		return fmt.Errorf("error deleting API key: %w", err)
-	}
-	return nil
+	return m.service.DeleteAPIKey(ctx, apiKeyOrHash)
 }
 
-func (m *APIKeyManager) SearchAPIKeys(ctx context.Context, offset, limit int) ([]*APIKeyInfo, error) {
-	// results, err := m.repo.Search(ctx, query, offset, limit, "created_at", "DESC")
-	// pattern := datarepository.RedisIdentifier{EntityPrefix: "", ID: "*"}
-	pattern := "*"
-	// m.logger("DEBUG", fmt.Sprintf("Search pattern: (%v)", pattern))
-	_, entities, err := m.repo.List(ctx, pattern)
-	if err != nil {
-		return nil, fmt.Errorf("error searching API keys: %w", err)
-	}
-
-	apiKeyInfos := make([]*APIKeyInfo, 0, len(entities))
-	for _, entity := range entities {
-		m.logger("DEBUG", fmt.Sprintf("Entity: %v", entity))
-		var apiKeyInfo APIKeyInfo
-		entityString, ok := entity.(string)
-		if !ok {
-			continue
-		}
-		err := json.Unmarshal([]byte(entityString), &apiKeyInfo)
-		if err != nil {
-			continue
-		}
-		apiKeyInfos = append(apiKeyInfos, &apiKeyInfo)
-	}
-	// m.logger("DEBUG", fmt.Sprintf("(%d)Search results: %v", len(entities), apiKeyInfos))
-	return apiKeyInfos, nil
+// SearchAPIKeys searches for API keys with pagination. Delegates to the service layer.
+func (m *APIKeyManager) SearchAPIKeys(ctx context.Context, offset, limit int) ([]*APIKeyInfo, int, error) {
+	return m.service.SearchAPIKeys(ctx, nil, offset, limit)
 }

@@ -1,0 +1,458 @@
+openapi: 3.0.3
+info:
+  title: go-apikeys API
+  description: |
+    API key authentication and management middleware for Go applications.
+
+    This API allows you to create, read, update, and delete API keys programmatically.
+    All endpoints except bootstrap require authentication via X-API-Key header.
+
+    **Security Note**: Bootstrap mode logs API keys in plain text. Only use for initial setup.
+  version: 1.0.0
+  contact:
+    name: go-apikeys
+    url: https://github.com/itsatony/go-apikeys
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.example.com
+    description: Production server (update with your URL)
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: API Keys
+    description: CRUD operations for API key management
+
+paths:
+  /apikeys:
+    post:
+      tags:
+        - API Keys
+      summary: Create a new API key
+      description: Creates a new API key with the specified user and organization information
+      operationId: createAPIKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKeyCreateRequest'
+            example:
+              user_id: "user123"
+              org_id: "org456"
+              name: "Production API Key"
+              email: "user@example.com"
+              roles: ["admin", "user"]
+              metadata:
+                environment: "production"
+                app: "my-app"
+      responses:
+        '201':
+          description: API key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+    get:
+      tags:
+        - API Keys
+      summary: Search API keys
+      description: Search for API keys with pagination
+      operationId: searchAPIKeys
+      parameters:
+        - name: offset
+          in: query
+          description: Number of records to skip for pagination
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Successful search
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKeyInfo'
+                  total:
+                    type: integer
+                    description: Total number of keys matching the search
+                  offset:
+                    type: integer
+                  limit:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+  /apikeys/{key_or_hash}:
+    get:
+      tags:
+        - API Keys
+      summary: Get API key by key or hash
+      description: Retrieve APIKeyInfo by the plain API key or its hash
+      operationId: getAPIKey
+      parameters:
+        - name: key_or_hash
+          in: path
+          description: API key value (e.g., gak_xxx) or hash
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: API key found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+    put:
+      tags:
+        - API Keys
+      summary: Update an existing API key
+      description: Update an existing API key with new information
+      operationId: updateAPIKey
+      parameters:
+        - name: key_or_hash
+          in: path
+          description: API key value or hash to update
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKeyUpdateRequest'
+      responses:
+        '200':
+          description: API key updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "API key updated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+    delete:
+      tags:
+        - API Keys
+      summary: Delete an API key
+      description: Delete an API key by its value or hash
+      operationId: deleteAPIKey
+      parameters:
+        - name: key_or_hash
+          in: path
+          description: API key value or hash to delete
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: API key deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+  /apikeys/issystemadmin:
+    get:
+      tags:
+        - API Keys
+      summary: Check if API key belongs to system admin
+      description: Determine if the API key in the request context has system admin privileges
+      operationId: isSystemAdmin
+      responses:
+        '200':
+          description: System admin check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_system_admin:
+                    type: boolean
+                    description: True if the API key belongs to a system admin
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security:
+        - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key for authentication. Format: `{prefix}_{random_string}`
+
+        Default prefix is `gak_` (Go API Key). Example: `gak_abc123xyz456`
+
+        Obtain your first API key via bootstrap mode or from your system administrator.
+
+  schemas:
+    APIKeyCreateRequest:
+      type: object
+      required:
+        - user_id
+        - org_id
+      properties:
+        user_id:
+          type: string
+          description: User ID associated with this API key
+          minLength: 1
+          maxLength: 100
+          example: "user123"
+        org_id:
+          type: string
+          description: Organization ID associated with this API key
+          minLength: 1
+          maxLength: 100
+          example: "org456"
+        name:
+          type: string
+          description: Human-readable name for the API key
+          minLength: 1
+          maxLength: 200
+          example: "Production API Key"
+        email:
+          type: string
+          format: email
+          description: Email address associated with the API key
+          example: "user@example.com"
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles assigned to this API key
+          example: ["admin", "user"]
+        rights:
+          type: array
+          items:
+            type: string
+          description: Specific rights/permissions for this API key
+          example: ["read:data", "write:data"]
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Custom metadata (JSON object, max 10KB)
+          example:
+            environment: "production"
+            app: "my-app"
+            created_by: "admin"
+
+    APIKeyUpdateRequest:
+      type: object
+      required:
+        - user_id
+        - org_id
+      properties:
+        user_id:
+          type: string
+          description: User ID associated with this API key
+          minLength: 1
+          maxLength: 100
+        org_id:
+          type: string
+          description: Organization ID associated with this API key
+          minLength: 1
+          maxLength: 100
+        name:
+          type: string
+          description: Human-readable name for the API key
+          minLength: 1
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          description: Email address associated with the API key
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles assigned to this API key
+        rights:
+          type: array
+          items:
+            type: string
+          description: Specific rights/permissions for this API key
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Custom metadata (JSON object, max 10KB)
+
+    APIKeyResponse:
+      allOf:
+        - $ref: '#/components/schemas/APIKeyInfo'
+        - type: object
+          properties:
+            api_key:
+              type: string
+              description: |
+                The plain-text API key. **IMPORTANT**: This is only returned once during creation.
+                Store it securely - you won't be able to retrieve it again!
+              example: "gak_abc123xyz456789"
+
+    APIKeyInfo:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: User ID associated with this API key
+          example: "user123"
+        org_id:
+          type: string
+          description: Organization ID associated with this API key
+          example: "org456"
+        name:
+          type: string
+          description: Human-readable name for the API key
+          example: "Production API Key"
+        email:
+          type: string
+          format: email
+          description: Email address associated with the API key
+          example: "user@example.com"
+        api_key_hash:
+          type: string
+          description: SHA3-512 hash of the API key (used as identifier)
+          example: "abc123...xyz789"
+        api_key_hint:
+          type: string
+          description: First and last 3 characters of the key for identification
+          example: "gak...789"
+        roles:
+          type: array
+          items:
+            type: string
+          description: Roles assigned to this API key
+          example: ["admin", "user"]
+        rights:
+          type: array
+          items:
+            type: string
+          description: Specific rights/permissions for this API key
+          example: ["read:data", "write:data"]
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Custom metadata
+          example:
+            environment: "production"
+            created_by: "admin"
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the API key was created
+          example: "2024-01-01T12:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the API key was last updated
+          example: "2024-01-01T12:00:00Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Invalid API key"
+
+  responses:
+    BadRequest:
+      description: Bad request - validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "validation failed: user_id is required"
+
+    Unauthorized:
+      description: Unauthorized - invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "unauthorized"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "API key not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Internal server error"

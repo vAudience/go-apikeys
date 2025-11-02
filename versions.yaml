@@ -1,0 +1,29 @@
+# versions.yaml - Multi-dimensional version manifest for go-apikeys
+manifest_version: "1.0"
+
+# Project version (semantic versioning)
+project:
+  name: "go-apikeys"
+  version: "1.0.0"  # Fresh start - pre-release breaking changes
+
+# Database schema versions (migration numbers)
+schemas:
+  redis_apikeys: "1"  # Redis key structure version
+
+# API versions (semantic versioning)
+apis:
+  rest_v1: "1.0.0"  # CRUD REST API
+
+# Component versions (internal dependencies)
+components:
+  go-datarepository: "0.5.0"  # Matches go.mod
+  go-cuserr: "0.3.0"  # Matches go.mod (integrated!)
+  go-version: "0.0.0-20251101145409-a672e7608678"  # Dev version from go.mod
+  go-pubbing: "1.0.0"  # Optional (not used)
+
+# Custom metadata
+custom:
+  environment: "development"
+  min_go_version: "1.24"
+  framework_support: ["fiber", "mux", "stdlib"]
+  rate_limiter_mode: "stub"  # Using stub until external package ready

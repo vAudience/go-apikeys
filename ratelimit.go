@@ -11,18 +11,8 @@ import (
 	"github.com/itsatony/go-datarepository"
 )
 
-const (
-	RATELIMITER_REDIS_KEY_RATELIMIT_PREFIX = "go-apikeys-ratelimiter"
-	RATELIMITER_REDIS_KEY_SEPARATOR        = ":"
-)
-
-type RateLimitRuleTarget string
-
-const (
-	RateLimitRuleTargetAPIKey RateLimitRuleTarget = "apikey"
-	RateLimitRuleTargetUserID RateLimitRuleTarget = "userID"
-	RateLimitRuleTargetOrgID  RateLimitRuleTarget = "orgID"
-)
+// NOTE: RateLimitRuleTarget and its constants are now defined in apikeys.constants.go
+// NOTE: Redis key constants are now defined in apikeys.constants.go
 
 type RateLimiter struct {
 	repo  datarepository.DataRepository
@@ -150,5 +140,5 @@ func (r *RateLimiter) getCurrentValue(ctx context.Context, key string) (int64, e
 }
 
 func assembleRateLimitKey(key string) string {
-	return strings.Join([]string{RATELIMITER_REDIS_KEY_RATELIMIT_PREFIX, key}, RATELIMITER_REDIS_KEY_SEPARATOR)
+	return strings.Join([]string{RATE_LIMIT_KEY_PREFIX, key}, RATE_LIMIT_KEY_SEPARATOR)
 }

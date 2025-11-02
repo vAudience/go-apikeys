@@ -80,7 +80,7 @@ func RegisterFiberCRUDRoutes(router fiber.Router, manager *APIKeyManager) {
 	router.Put("/apikeys/:key_or_hash", handlers.UpdateAPIKey)
 	router.Delete("/apikeys/:key_or_hash", handlers.DeleteAPIKey)
 
-	manager.logger("INFO", "[GO-APIKEYS.RegisterFiberCRUDRoutes] Fiber CRUD routes registered")
+	manager.logger.Info("[GO-APIKEYS.RegisterFiberCRUDRoutes] Fiber CRUD routes registered")
 }
 
 // Fiber Handlers =============================================================
@@ -88,149 +88,81 @@ func RegisterFiberCRUDRoutes(router fiber.Router, manager *APIKeyManager) {
 // FiberHandlers contains all the Fiber-specific handlers
 type FiberHandlers struct {
 	manager *APIKeyManager
+	core    *HandlerCore
 }
 
 func NewFiberHandlers(manager *APIKeyManager) *FiberHandlers {
-	return &FiberHandlers{manager: manager}
+	return &FiberHandlers{
+		manager: manager,
+		core:    NewHandlerCore(manager),
+	}
 }
 
 // CreateAPIKey handles the creation of a new API key
 func (h *FiberHandlers) CreateAPIKey(c *fiber.Ctx) error {
-	if !isSystemAdminFiber(h.manager, c) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: not a system admin"})
-	}
+	// Extract request body
+	body := c.Body()
 
-	var apiKeyInfo APIKeyInfo
-	if err := c.BodyParser(&apiKeyInfo); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
-	}
+	// Get API key info from context (for auth check)
+	apiKeyInfo := h.manager.Get(c)
 
-	_, err := h.manager.CreateAPIKey(c.Context(), &apiKeyInfo)
-	if err != nil {
-		h.manager.logger("ERROR", "[GO-APIKEYS.CreateAPIKey] Error creating API key: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create API key"})
-	}
+	// Call core handler
+	result := h.core.HandleCreateAPIKey(c.Context(), body, apiKeyInfo)
 
-	callerInfo := apiKeyInfo.Filter(true, false)
-	h.manager.logger("INFO", "[GO-APIKEYS.CreateAPIKey] API key created: "+callerInfo.APIKeyHint)
-	return c.Status(fiber.StatusCreated).JSON(callerInfo)
+	// Convert result to Fiber response
+	return fiberResponse(c, result)
 }
 
 // SearchAPIKeys handles the search for API keys
 func (h *FiberHandlers) SearchAPIKeys(c *fiber.Ctx) error {
-	if !isSystemAdminFiber(h.manager, c) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: not a system admin"})
-	}
-
-	apiKeyInfos, err := h.manager.SearchAPIKeys(c.Context(), 0, 1000)
-	if err != nil {
-		h.manager.logger("ERROR", "[GO-APIKEYS.SearchAPIKeys] Error searching API keys: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to search API keys"})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(apiKeyInfos)
+	apiKeyInfo := h.manager.Get(c)
+	result := h.core.HandleSearchAPIKeys(c.Context(), apiKeyInfo)
+	return fiberResponse(c, result)
 }
 
 // GetAPIKey handles retrieving an API key by its value or hash
 func (h *FiberHandlers) GetAPIKey(c *fiber.Ctx) error {
-	if !isSystemAdminFiber(h.manager, c) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: not a system admin"})
-	}
-
 	keyOrHash := c.Params("key_or_hash")
-	if keyOrHash == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing API key or hash"})
-	}
-
-	apiKeyInfo, err := h.manager.GetAPIKeyInfo(c.Context(), keyOrHash)
-	if err != nil {
-		if err == ErrAPIKeyNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "API key not found"})
-		}
-		h.manager.logger("ERROR", "[GO-APIKEYS.GetAPIKey] Error retrieving API key: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to retrieve API key"})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(apiKeyInfo)
+	apiKeyInfo := h.manager.Get(c)
+	result := h.core.HandleGetAPIKey(c.Context(), keyOrHash, apiKeyInfo)
+	return fiberResponse(c, result)
 }
 
 // UpdateAPIKey handles updating an existing API key
 func (h *FiberHandlers) UpdateAPIKey(c *fiber.Ctx) error {
-	if !isSystemAdminFiber(h.manager, c) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: not a system admin"})
-	}
-
 	keyOrHash := c.Params("key_or_hash")
-	if keyOrHash == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing API key hash"})
-	}
-
-	var apiKeyInfo APIKeyInfo
-	if err := c.BodyParser(&apiKeyInfo); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
-	}
-	apiKeyInfo.APIKeyHash = keyOrHash
-
-	err := h.manager.UpdateAPIKey(c.Context(), &apiKeyInfo)
-	if err != nil {
-		h.manager.logger("ERROR", "[GO-APIKEYS.UpdateAPIKey] Error updating API key: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update API key"})
-	}
-
-	updatedDBKey, err := h.manager.GetAPIKeyInfo(c.Context(), keyOrHash)
-	if err != nil {
-		h.manager.logger("ERROR", "[GO-APIKEYS.UpdateAPIKey] Error retrieving updated API key: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to retrieve updated API key"})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(updatedDBKey)
+	body := c.Body()
+	apiKeyInfo := h.manager.Get(c)
+	result := h.core.HandleUpdateAPIKey(c.Context(), keyOrHash, body, apiKeyInfo)
+	return fiberResponse(c, result)
 }
 
 // DeleteAPIKey handles deleting an API key
 func (h *FiberHandlers) DeleteAPIKey(c *fiber.Ctx) error {
-	if !isSystemAdminFiber(h.manager, c) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized: not a system admin"})
-	}
-
 	keyOrHash := c.Params("key_or_hash")
-	if keyOrHash == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Missing API key or hash"})
-	}
-
-	err := h.manager.DeleteAPIKey(c.Context(), keyOrHash)
-	if err != nil {
-		if err == ErrAPIKeyNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "API key not found"})
-		}
-		h.manager.logger("ERROR", "[GO-APIKEYS.DeleteAPIKey] Error deleting API key: "+err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete API key"})
-	}
-
-	return c.SendStatus(fiber.StatusNoContent)
+	apiKeyInfo := h.manager.Get(c)
+	result := h.core.HandleDeleteAPIKey(c.Context(), keyOrHash, apiKeyInfo)
+	return fiberResponse(c, result)
 }
 
 // IsSystemAdmin checks if the current API key belongs to a system admin
 func (h *FiberHandlers) IsSystemAdmin(c *fiber.Ctx) error {
-	state := isSystemAdminFiber(h.manager, c)
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"isSystemAdmin": state})
+	apiKeyInfo := h.manager.Get(c)
+	result := h.core.HandleIsSystemAdmin(apiKeyInfo)
+	return fiberResponse(c, result)
 }
 
-// isSystemAdmin is a helper function to check if the request is from a system admin
-func isSystemAdminFiber(manager *APIKeyManager, c *fiber.Ctx) bool {
-	apiKeyInfo := manager.Get(c)
-	if apiKeyInfo == nil {
-		// manager.logger("INFO", "No ApiKeyInfo found in request context")
-		return false
+// fiberResponse converts a HandlerResult to a Fiber response
+func fiberResponse(c *fiber.Ctx, result *HandlerResult) error {
+	if result.Error != "" {
+		return c.Status(result.StatusCode).JSON(fiber.Map{
+			RESPONSE_KEY_ERROR: result.Error,
+		})
 	}
-	systemAdmin, ok := apiKeyInfo.Metadata[METADATA_KEYS_SYSTEM_ADMIN]
-	if !ok {
-		// manager.logger("INFO", "[GO-APIKEYS.isSystemAdmin] API key [METADATA_KEYS_SYSTEM_ADMIN] not found in context")
-		return false
+
+	if result.StatusCode == 204 {
+		return c.SendStatus(fiber.StatusNoContent)
 	}
-	isSysAdmin, ok := systemAdmin.(bool)
-	if !ok {
-		// manager.logger("INFO", "[GO-APIKEYS.isSystemAdmin] API key systemAdmin metadata is not a boolean")
-		return false
-	}
-	return isSysAdmin
+
+	return c.Status(result.StatusCode).JSON(result.Data)
 }
