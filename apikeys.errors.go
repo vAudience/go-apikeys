@@ -187,6 +187,7 @@ func ErrorToHTTPStatus(err error) int {
 		return 200
 	}
 
+	// First check our sentinel errors (higher priority)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return 404
@@ -206,9 +207,21 @@ func ErrorToHTTPStatus(err error) int {
 		return 502
 	case errors.Is(err, ErrInternal):
 		return 500
-	default:
-		return 500
 	}
+
+	// Fall back to go-cuserr error category for cuserr-constructed errors
+	category := cuserr.GetErrorCategory(err)
+	if category != "" {
+		status := cuserr.CategoryToHTTPStatus(category)
+		// Only use cuserr status if it's not 500 (internal/unknown)
+		// This prevents plain errors from being incorrectly categorized
+		if status != 500 {
+			return status
+		}
+	}
+
+	// Default to 500
+	return 500
 }
 
 // ErrorToMessage extracts user-safe error message

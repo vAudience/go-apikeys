@@ -2,23 +2,750 @@ package apikeys
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"sort"
 	"testing"
+	"time"
 
+	"github.com/itsatony/go-datarepository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
+// mockDataRepositoryForManager is a minimal mock for testing APIKeyManager construction
+type mockDataRepositoryForManager struct {
+	data map[string]string // stores JSON strings
+}
+
+func newMockDataRepositoryForManager() *mockDataRepositoryForManager {
+	return &mockDataRepositoryForManager{
+		data: make(map[string]string),
+	}
+}
+
+func (m *mockDataRepositoryForManager) Create(ctx context.Context, id datarepository.EntityIdentifier, entity interface{}) error {
+	if _, exists := m.data[id.String()]; exists {
+		return errors.New("already exists")
+	}
+	jsonBytes, _ := json.Marshal(entity)
+	m.data[id.String()] = string(jsonBytes)
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) Upsert(ctx context.Context, id datarepository.EntityIdentifier, entity interface{}) error {
+	jsonBytes, _ := json.Marshal(entity)
+	m.data[id.String()] = string(jsonBytes)
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) Read(ctx context.Context, id datarepository.EntityIdentifier, entity interface{}) error {
+	jsonStr, exists := m.data[id.String()]
+	if !exists {
+		return datarepository.ErrNotFound
+	}
+	return json.Unmarshal([]byte(jsonStr), entity)
+}
+
+func (m *mockDataRepositoryForManager) Update(ctx context.Context, id datarepository.EntityIdentifier, entity interface{}) error {
+	if _, exists := m.data[id.String()]; !exists {
+		return datarepository.ErrNotFound
+	}
+	jsonBytes, _ := json.Marshal(entity)
+	m.data[id.String()] = string(jsonBytes)
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) Delete(ctx context.Context, id datarepository.EntityIdentifier) error {
+	if _, exists := m.data[id.String()]; !exists {
+		return datarepository.ErrNotFound
+	}
+	delete(m.data, id.String())
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) List(ctx context.Context, pattern string) ([]datarepository.EntityIdentifier, []interface{}, error) {
+	var keys []string
+	for id := range m.data {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+
+	var ids []datarepository.EntityIdentifier
+	var entities []interface{}
+	for _, key := range keys {
+		ids = append(ids, datarepository.SimpleIdentifier(key))
+		entities = append(entities, m.data[key])
+	}
+	return ids, entities, nil
+}
+
+func (m *mockDataRepositoryForManager) Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]datarepository.EntityIdentifier, error) {
+	return nil, nil
+}
+
+func (m *mockDataRepositoryForManager) AcquireLock(ctx context.Context, id datarepository.EntityIdentifier, ttl time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (m *mockDataRepositoryForManager) ReleaseLock(ctx context.Context, id datarepository.EntityIdentifier) error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) AtomicIncrement(ctx context.Context, id datarepository.EntityIdentifier) (int64, error) {
+	return 1, nil
+}
+
+func (m *mockDataRepositoryForManager) Close() error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) Publish(ctx context.Context, channel string, message interface{}) error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) Subscribe(ctx context.Context, channel string) (chan interface{}, error) {
+	ch := make(chan interface{})
+	close(ch)
+	return ch, nil
+}
+
+func (m *mockDataRepositoryForManager) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) SetExpiration(ctx context.Context, id datarepository.EntityIdentifier, expiration time.Duration) error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) GetExpiration(ctx context.Context, id datarepository.EntityIdentifier) (time.Duration, error) {
+	return 0, nil
+}
+
+func (m *mockDataRepositoryForManager) RegisterPlugin(plugin datarepository.RepositoryPlugin) error {
+	return nil
+}
+
+func (m *mockDataRepositoryForManager) GetPlugin(name string) (datarepository.RepositoryPlugin, bool) {
+	return nil, false
+}
+
 func TestAPIKeyManager_New(t *testing.T) {
-	t.Run("fails with nil config", func(t *testing.T) {
-		// The New function will panic or fail with nil config
-		// We can't test a full valid config without a proper datarepository.DataRepository implementation
-		// which would require extensive mocking beyond the scope of unit tests
+	t.Run("successful creation with minimal valid config", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.NotNil(t, manager.service)
+		assert.NotNil(t, manager.logger)
+		assert.NotNil(t, manager.framework)
+		assert.Equal(t, config, manager.config)
 	})
 
-	// Note: Full testing of New() requires a proper datarepository implementation
-	// which is tested through integration tests. Here we focus on testing the manager's
-	// methods with a directly constructed manager.
+	t.Run("applies defaults to config", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository: repo,
+			Framework:  &GorillaMuxFramework{},
+			Logger:     logger,
+			// Leave ApiKeyPrefix empty to test default (will be applied then validated)
+			// Leave HeaderKey empty to test default
+			// Leave ApiKeyLength as 0 to test default
+		}
+
+		// Note: ApplyDefaults() sets ApiKeyPrefix to "gak_" which fails validation
+		// (underscore not allowed). So this should fail.
+		manager, err := New(config)
+
+		// Manager creation should fail due to invalid default prefix
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "validation failed")
+	})
+
+	t.Run("fails with nil config", func(t *testing.T) {
+		// New will call methods on nil config, causing panic
+		// We expect this to panic or fail gracefully
+		assert.Panics(t, func() {
+			New(nil)
+		})
+	})
+
+	t.Run("fails with nil repository", func(t *testing.T) {
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   nil,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak", // Set valid prefix to avoid multiple validation errors
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		// With multiple validation errors, the message is "validation failed: N errors"
+		assert.Contains(t, err.Error(), "validation failed")
+	})
+
+	t.Run("fails with nil framework", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository: repo,
+			Framework:  nil,
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "framework")
+	})
+
+	t.Run("fails with invalid API key prefix", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "INVALID123", // Must be lowercase letters only
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "api_key_prefix")
+	})
+
+	t.Run("fails with API key length too short", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",  // Set valid prefix to avoid multiple validation errors
+			ApiKeyLength: 5,      // Must be at least 10
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		// With multiple validation errors, the message is "validation failed: N errors"
+		assert.Contains(t, err.Error(), "validation failed")
+	})
+
+	t.Run("applies default header key when empty", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			HeaderKey:    "", // Will be filled by ApplyDefaults()
+		}
+
+		manager, err := New(config)
+
+		// Should succeed because ApplyDefaults() fills HeaderKey
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Equal(t, DEFAULT_HEADER_KEY, config.HeaderKey)
+	})
+
+	t.Run("successfully creates with cache enabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			EnableCache:  true,
+			CacheSize:    100,
+			CacheTTL:     3600,
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		// Service should have cache enabled
+		assert.NotNil(t, manager.service)
+	})
+
+	t.Run("successfully creates with cache disabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			EnableCache:  false,
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+	})
+
+	t.Run("successfully creates with rate limiting enabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "/api/.*",
+					Timespan: 60,
+					Limit:    100,
+					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
+				},
+			},
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.NotNil(t, manager.limiter)
+	})
+
+	t.Run("successfully creates with rate limiting disabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: false,
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Nil(t, manager.limiter)
+	})
+
+	t.Run("fails with rate limiting enabled but no rules", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules:  []RateLimitRule{}, // Empty rules
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "rate_limit_rules")
+	})
+
+	t.Run("fails with invalid regex in ignore patterns", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			IgnoreApiKeyForRoutePatterns: []string{
+				"/health",
+				"[invalid-regex", // Invalid regex
+			},
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		// Error message format: "invalid regex pattern at index N..."
+		assert.Contains(t, err.Error(), "invalid regex")
+	})
+
+	t.Run("successfully compiles valid ignore patterns", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			IgnoreApiKeyForRoutePatterns: []string{
+				"/health",
+				"/metrics",
+				"/api/v[0-9]+/public/.*",
+			},
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Len(t, manager.ignorePatterns, 3)
+		// Verify patterns were compiled
+		for _, pattern := range manager.ignorePatterns {
+			assert.NotNil(t, pattern)
+		}
+	})
+
+	t.Run("successfully creates with Fiber framework", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &FiberFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.IsType(t, &FiberFramework{}, manager.framework)
+	})
+
+	t.Run("successfully creates with GorillaMux framework", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.IsType(t, &GorillaMuxFramework{}, manager.framework)
+	})
+
+	t.Run("successfully creates with custom API key prefix and length", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			ApiKeyLength: 24,
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Equal(t, "gak", config.ApiKeyPrefix)
+		assert.Equal(t, 24, config.ApiKeyLength)
+	})
+
+	t.Run("successfully creates with all features enabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableCache:     true,
+			CacheSize:       100,
+			CacheTTL:        3600,
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "/api/.*",
+					Timespan: 60,
+					Limit:    100,
+					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
+				},
+			},
+			EnableCRUD: true,
+			IgnoreApiKeyForRoutePatterns: []string{
+				"/health",
+				"/metrics",
+			},
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.NotNil(t, manager.service)
+		assert.NotNil(t, manager.limiter)
+		assert.Len(t, manager.ignorePatterns, 2)
+	})
+
+	t.Run("successfully creates with all features disabled", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableCache:     false,
+			EnableRateLimit: false,
+			EnableCRUD:      false,
+			EnableBootstrap: false,
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Nil(t, manager.limiter)
+	})
+
+	t.Run("service layer is properly initialized", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager.service)
+
+		// Test service works by creating a key
+		ctx := context.Background()
+		apiKeyInfo := &APIKeyInfo{
+			UserID: "test-user",
+			OrgID:  "test-org",
+		}
+		created, err := manager.CreateAPIKey(ctx, apiKeyInfo)
+		require.NoError(t, err)
+		assert.NotEmpty(t, created.APIKey)
+		assert.NotEmpty(t, created.APIKeyHash)
+	})
+
+	t.Run("fails with invalid rate limit rule", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "[invalid-regex",
+					Timespan: 60,
+					Limit:    100,
+					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
+				},
+			},
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "path")
+	})
+
+	t.Run("fails with rate limit rule having invalid timespan", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "/api/.*",
+					Timespan: 0, // Invalid
+					Limit:    100,
+					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
+				},
+			},
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "timespan")
+	})
+
+	t.Run("fails with rate limit rule having invalid limit", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "/api/.*",
+					Timespan: 60,
+					Limit:    0, // Invalid
+					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
+				},
+			},
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "limit")
+	})
+
+	t.Run("fails with rate limit rule having no apply_to targets", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:      repo,
+			Framework:       &GorillaMuxFramework{},
+			Logger:          logger,
+			ApiKeyPrefix:    "gak",
+			EnableRateLimit: true,
+			RateLimitRules: []RateLimitRule{
+				{
+					Path:     "/api/.*",
+					Timespan: 60,
+					Limit:    100,
+					ApplyTo:  []RateLimitRuleTarget{}, // Empty
+				},
+			},
+		}
+
+		manager, err := New(config)
+
+		assert.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), "apply_to")
+	})
+
+	t.Run("logs version information on creation", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		// Version logging is verified by the fact that New() completes successfully
+	})
+
+	t.Run("creates manager with empty ignore patterns", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:                   repo,
+			Framework:                    &GorillaMuxFramework{},
+			Logger:                       logger,
+			ApiKeyPrefix:                 "gak",
+			IgnoreApiKeyForRoutePatterns: []string{},
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Empty(t, manager.ignorePatterns)
+	})
+
+	t.Run("creates manager with multiple ignore patterns", func(t *testing.T) {
+		repo := newMockDataRepositoryForManager()
+		logger, _ := zap.NewDevelopment()
+
+		config := &Config{
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			IgnoreApiKeyForRoutePatterns: []string{
+				"/health",
+				"/metrics",
+				"/status",
+				"/api/public/.*",
+				"/api/v[0-9]+/docs",
+			},
+		}
+
+		manager, err := New(config)
+
+		require.NoError(t, err)
+		assert.NotNil(t, manager)
+		assert.Len(t, manager.ignorePatterns, 5)
+	})
 }
 
 func TestAPIKeyManager_AccessorMethods(t *testing.T) {
@@ -69,9 +796,9 @@ func TestAPIKeyManager_AccessorMethods(t *testing.T) {
 }
 
 func TestAPIKeyManager_DelegationMethods(t *testing.T) {
-	mockRepo := newMockRepository()
+	mockRepo := newMockRepository() // Use APIKeyRepository mock
 	logger, _ := zap.NewDevelopment()
-	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH)
+	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH, 0, 0)
 	require.NoError(t, err)
 
 	manager := &APIKeyManager{

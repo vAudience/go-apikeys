@@ -56,8 +56,16 @@ func stdlibResponse(w http.ResponseWriter, result *HandlerResult) {
 // @Router /apikeys [post]
 // @Security ApiKey
 func (h *StandardHandlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	if err != nil {
+		result := &HandlerResult{
+			StatusCode: http.StatusBadRequest,
+			Error:      "failed to read request body",
+		}
+		stdlibResponse(w, result)
+		return
+	}
 	apiKeyInfo := h.manager.Get(r)
 	result := h.core.HandleCreateAPIKey(r.Context(), body, apiKeyInfo)
 	stdlibResponse(w, result)
@@ -117,8 +125,16 @@ func (h *StandardHandlers) GetAPIKey(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKey
 func (h *StandardHandlers) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 	keyOrHash := r.PathValue("key_or_hash")
-	body, _ := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	if err != nil {
+		result := &HandlerResult{
+			StatusCode: http.StatusBadRequest,
+			Error:      "failed to read request body",
+		}
+		stdlibResponse(w, result)
+		return
+	}
 	apiKeyInfo := h.manager.Get(r)
 	result := h.core.HandleUpdateAPIKey(r.Context(), keyOrHash, body, apiKeyInfo)
 	stdlibResponse(w, result)

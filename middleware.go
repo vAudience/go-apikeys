@@ -3,15 +3,19 @@ package apikeys
 import (
 	"context"
 	"net/http"
-	"regexp"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 func (m *APIKeyManager) fiberMiddleware() fiber.Handler {
+	// Compile patterns if needed (supports config changes after initialization)
+	m.compileIgnorePatternsIfNeeded()
+
 	return func(c *fiber.Ctx) error {
-		for _, pattern := range m.config.IgnoreApiKeyForRoutePatterns {
-			if ok, _ := regexp.MatchString(pattern, c.Path()); ok {
+		// Check pre-compiled patterns (much faster than compiling on every request)
+		path := c.Path()
+		for _, pattern := range m.ignorePatterns {
+			if pattern.MatchString(path) {
 				return c.Next()
 			}
 		}
@@ -40,10 +44,15 @@ func (m *APIKeyManager) fiberMiddleware() fiber.Handler {
 }
 
 func (m *APIKeyManager) standardMiddleware() func(http.Handler) http.Handler {
+	// Compile patterns if needed (supports config changes after initialization)
+	m.compileIgnorePatternsIfNeeded()
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			for _, pattern := range m.config.IgnoreApiKeyForRoutePatterns {
-				if ok, _ := regexp.MatchString(pattern, r.URL.Path); ok {
+			// Check pre-compiled patterns (much faster than compiling on every request)
+			path := r.URL.Path
+			for _, pattern := range m.ignorePatterns {
+				if pattern.MatchString(path) {
 					next.ServeHTTP(w, r)
 					return
 				}

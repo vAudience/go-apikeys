@@ -3,7 +3,9 @@ package apikeys
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
@@ -12,11 +14,33 @@ import (
 // APIKeyManager orchestrates API key authentication and management.
 // This is the main entry point for the middleware.
 type APIKeyManager struct {
-	config    *Config
-	logger    *zap.Logger
-	service   *APIKeyService
-	limiter   RateLimiterInterface
-	framework HTTPFramework
+	config         *Config
+	logger         *zap.Logger
+	service        *APIKeyService
+	limiter        RateLimiterInterface
+	framework      HTTPFramework
+	ignorePatterns []*regexp.Regexp // Pre-compiled regex patterns for route ignoring
+}
+
+// compileIgnorePatternsIfNeeded ensures patterns are compiled, supporting config changes after initialization
+func (m *APIKeyManager) compileIgnorePatternsIfNeeded() error {
+	// If patterns already compiled and match config, no need to recompile
+	if len(m.ignorePatterns) == len(m.config.IgnoreApiKeyForRoutePatterns) {
+		return nil
+	}
+
+	// Compile patterns from current config
+	ignorePatterns := make([]*regexp.Regexp, 0, len(m.config.IgnoreApiKeyForRoutePatterns))
+	for i, pattern := range m.config.IgnoreApiKeyForRoutePatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return NewValidationError("ignore_patterns",
+				fmt.Sprintf("invalid regex pattern at index %d ('%s'): %v", i, pattern, err))
+		}
+		ignorePatterns = append(ignorePatterns, re)
+	}
+	m.ignorePatterns = ignorePatterns
+	return nil
 }
 
 // New creates a new API key manager with the given configuration.
@@ -36,8 +60,12 @@ func New(config *Config) (*APIKeyManager, error) {
 		return nil, err
 	}
 
-	// Create service layer
-	service, err := NewAPIKeyService(repo, config.Logger, config.ApiKeyPrefix, config.ApiKeyLength)
+	// Create service layer with cache configuration
+	cacheSize := 0
+	if config.EnableCache {
+		cacheSize = config.CacheSize
+	}
+	service, err := NewAPIKeyService(repo, config.Logger, config.ApiKeyPrefix, config.ApiKeyLength, cacheSize, config.CacheTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -49,24 +77,36 @@ func New(config *Config) (*APIKeyManager, error) {
 		limiter = NewStubRateLimiter(config.Logger)
 	}
 
+	// Pre-compile regex patterns for route ignoring (CRITICAL: must be done once, not on every request)
+	ignorePatterns := make([]*regexp.Regexp, 0, len(config.IgnoreApiKeyForRoutePatterns))
+	for i, pattern := range config.IgnoreApiKeyForRoutePatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, NewValidationError("ignore_patterns",
+				fmt.Sprintf("invalid regex pattern at index %d ('%s'): %v", i, pattern, err))
+		}
+		ignorePatterns = append(ignorePatterns, re)
+	}
+
 	manager := &APIKeyManager{
-		config:    config,
-		logger:    config.Logger.Named(CLASS_APIKEY_MANAGER),
-		service:   service,
-		limiter:   limiter,
-		framework: config.Framework,
+		config:         config,
+		logger:         config.Logger.Named(CLASS_APIKEY_MANAGER),
+		service:        service,
+		limiter:        limiter,
+		framework:      config.Framework,
+		ignorePatterns: ignorePatterns,
 	}
 
 	// Log version information
 	LogVersionInfo(manager.logger)
 
 	manager.logger.Info("API key manager created",
-		zap.String("version", GetProjectVersion()),
-		zap.String("prefix", config.ApiKeyPrefix),
-		zap.Int("key_length", config.ApiKeyLength),
-		zap.Bool("crud_enabled", config.EnableCRUD),
-		zap.Bool("rate_limit_enabled", config.EnableRateLimit),
-		zap.Bool("bootstrap_enabled", config.EnableBootstrap))
+		zap.String(LOG_FIELD_VERSION, GetProjectVersion()),
+		zap.String(LOG_FIELD_PREFIX, config.ApiKeyPrefix),
+		zap.Int(LOG_FIELD_KEY_LENGTH, config.ApiKeyLength),
+		zap.Bool(LOG_FIELD_CRUD_ENABLED, config.EnableCRUD),
+		zap.Bool(LOG_FIELD_RATE_LIMIT_ENABLED, config.EnableRateLimit),
+		zap.Bool(LOG_FIELD_BOOTSTRAP_ENABLED, config.EnableBootstrap))
 
 	// Run bootstrap if enabled
 	if config.EnableBootstrap {

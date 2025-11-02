@@ -6,9 +6,17 @@ package apikeys
 
 import (
 	"context"
+	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"go.uber.org/zap"
 )
+
+// cacheEntry wraps APIKeyInfo with expiration time for TTL support
+type cacheEntry struct {
+	apiKey    *APIKeyInfo
+	expiresAt time.Time
+}
 
 // APIKeyService handles business logic for API key operations.
 // This service is framework-agnostic and can be used with any HTTP framework.
@@ -17,10 +25,14 @@ type APIKeyService struct {
 	logger       *zap.Logger
 	apiKeyPrefix string
 	apiKeyLength int
+	cache        *lru.Cache[string, *cacheEntry] // LRU cache for API key lookups
+	cacheTTL     time.Duration                   // TTL for cache entries
 }
 
 // NewAPIKeyService creates a new API key service.
-func NewAPIKeyService(repo APIKeyRepository, logger *zap.Logger, prefix string, length int) (*APIKeyService, error) {
+// cacheSize: Set to 0 to disable caching. Use DEFAULT_CACHE_SIZE (1000) for default.
+// cacheTTL: Cache TTL in seconds. Use DEFAULT_CACHE_TTL (300) for default.
+func NewAPIKeyService(repo APIKeyRepository, logger *zap.Logger, prefix string, length int, cacheSize int, cacheTTL int) (*APIKeyService, error) {
 	if repo == nil {
 		return nil, ErrRepositoryRequired
 	}
@@ -28,12 +40,32 @@ func NewAPIKeyService(repo APIKeyRepository, logger *zap.Logger, prefix string, 
 		logger, _ = zap.NewProduction() // Fallback to default logger
 	}
 
-	return &APIKeyService{
+	service := &APIKeyService{
 		repo:         repo,
 		logger:       logger.Named(CLASS_APIKEY_SERVICE),
 		apiKeyPrefix: prefix,
 		apiKeyLength: length,
-	}, nil
+		cacheTTL:     time.Duration(cacheTTL) * time.Second,
+	}
+
+	// Initialize cache if size > 0
+	if cacheSize > 0 {
+		cache, err := lru.New[string, *cacheEntry](cacheSize)
+		if err != nil {
+			logger.Warn("Failed to initialize cache, continuing without caching",
+				zap.Error(err),
+				zap.Int("cache_size", cacheSize))
+		} else {
+			service.cache = cache
+			logger.Info("API key cache initialized",
+				zap.Int("size", cacheSize),
+				zap.Int("ttl_seconds", cacheTTL))
+		}
+	} else {
+		logger.Info("API key caching disabled")
+	}
+
+	return service, nil
 }
 
 // CreateAPIKey creates a new API key with the given information.
@@ -49,7 +81,7 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 	SanitizeAPIKeyInfo(apiKeyInfo)
 	if err := ValidateAPIKeyInfo(apiKeyInfo); err != nil {
 		s.logger.Warn("API key validation failed",
-			zap.String("user_id", apiKeyInfo.UserID),
+			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 			zap.Error(err))
 		return nil, err
 	}
@@ -61,13 +93,13 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		// Use provided API key
 		apiKey = apiKeyInfo.APIKey
 		s.logger.Debug("Using provided API key",
-			zap.String("user_id", apiKeyInfo.UserID))
+			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID))
 	} else {
 		// Generate new API key
 		apiKey, err = GenerateAPIKey(s.apiKeyPrefix, s.apiKeyLength)
 		if err != nil {
 			s.logger.Error("Failed to generate API key",
-				zap.String("user_id", apiKeyInfo.UserID),
+				zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 				zap.Error(err))
 			return nil, NewInternalError("api_key_generation", err)
 		}
@@ -77,7 +109,7 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 	hash, hint, err := GenerateAPIKeyHash(apiKey)
 	if err != nil {
 		s.logger.Error("Failed to generate API key hash",
-			zap.String("user_id", apiKeyInfo.UserID),
+			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 			zap.Error(err))
 		return nil, NewInternalError("hash_generation", err)
 	}
@@ -91,22 +123,39 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 	err = s.repo.Create(ctx, apiKeyInfo)
 	if err != nil {
 		s.logger.Error("Failed to create API key",
-			zap.String("user_id", apiKeyInfo.UserID),
-			zap.String("org_id", apiKeyInfo.OrgID),
+			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
+			zap.String(LOG_FIELD_ORG_ID, apiKeyInfo.OrgID),
 			zap.Error(err))
 		return nil, err
 	}
 
-	// Set the plain API key for return (only time caller sees it)
-	apiKeyInfo.APIKey = apiKey
-
 	s.logger.Info("API key created",
-		zap.String("user_id", apiKeyInfo.UserID),
-		zap.String("org_id", apiKeyInfo.OrgID),
-		zap.String("hash", hash),
-		zap.String("hint", hint))
+		zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
+		zap.String(LOG_FIELD_ORG_ID, apiKeyInfo.OrgID),
+		zap.String(LOG_FIELD_HASH, hash),
+		zap.String(LOG_FIELD_HINT, hint))
 
-	return apiKeyInfo, nil
+	// Return a copy with the plain API key set (only time caller sees it)
+	// We must return a copy to avoid data races - the repository has a pointer
+	// to apiKeyInfo, and we can't modify it after storing.
+	result := &APIKeyInfo{
+		APIKey:     apiKey, // Include plain key for return
+		APIKeyHash: apiKeyInfo.APIKeyHash,
+		APIKeyHint: apiKeyInfo.APIKeyHint,
+		UserID:     apiKeyInfo.UserID,
+		OrgID:      apiKeyInfo.OrgID,
+		Name:       apiKeyInfo.Name,
+		Email:      apiKeyInfo.Email,
+		Roles:      append([]string{}, apiKeyInfo.Roles...),
+		Rights:     append([]string{}, apiKeyInfo.Rights...),
+		Metadata:   make(map[string]any, len(apiKeyInfo.Metadata)),
+	}
+	// Deep copy metadata
+	for k, v := range apiKeyInfo.Metadata {
+		result.Metadata[k] = v
+	}
+
+	return result, nil
 }
 
 // GetAPIKeyInfo retrieves an API key by its plain key or hash.
@@ -130,31 +179,61 @@ func (s *APIKeyService) GetAPIKeyInfo(ctx context.Context, apiKeyOrHash string) 
 			return nil, NewInternalError("hash_generation", err)
 		}
 		s.logger.Debug("API key provided, hashed for lookup",
-			zap.String("hash", hash))
+			zap.String(LOG_FIELD_HASH, hash))
 	} else {
 		// It's already a hash
 		hash = apiKeyOrHash
 		s.logger.Debug("Hash provided for lookup",
-			zap.String("hash", hash))
+			zap.String(LOG_FIELD_HASH, hash))
 	}
 
-	// Retrieve from repository
+	// Try cache first if enabled
+	if s.cache != nil {
+		if entry, ok := s.cache.Get(hash); ok {
+			// Check if entry is expired
+			if time.Now().Before(entry.expiresAt) {
+				s.logger.Debug("API key retrieved from cache",
+					zap.String(LOG_FIELD_HASH, hash),
+					zap.String(LOG_FIELD_USER_ID, entry.apiKey.UserID))
+				return entry.apiKey, nil
+			}
+			// Entry expired, remove it
+			s.cache.Remove(hash)
+			s.logger.Debug("Cache entry expired, removed",
+				zap.String(LOG_FIELD_HASH, hash))
+		}
+	}
+
+	// Retrieve from repository (cache miss or disabled)
 	apiKeyInfo, err := s.repo.GetByHash(ctx, hash)
 	if err != nil {
 		if IsNotFoundError(err) {
 			s.logger.Debug("API key not found",
-				zap.String("hash", hash))
+				zap.String(LOG_FIELD_HASH, hash))
 			return nil, ErrAPIKeyNotFound
 		}
 		s.logger.Error("Failed to retrieve API key",
-			zap.String("hash", hash),
+			zap.String(LOG_FIELD_HASH, hash),
 			zap.Error(err))
 		return nil, err
 	}
 
+	// Populate cache if enabled
+	if s.cache != nil {
+		entry := &cacheEntry{
+			apiKey:    apiKeyInfo,
+			expiresAt: time.Now().Add(s.cacheTTL),
+		}
+		s.cache.Add(hash, entry)
+		s.logger.Debug("API key added to cache",
+			zap.String(LOG_FIELD_HASH, hash),
+			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
+			zap.Duration("ttl", s.cacheTTL))
+	}
+
 	s.logger.Debug("API key retrieved",
-		zap.String("hash", hash),
-		zap.String("user_id", apiKeyInfo.UserID))
+		zap.String(LOG_FIELD_HASH, hash),
+		zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID))
 
 	return apiKeyInfo, nil
 }
@@ -170,35 +249,60 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		return NewValidationError("api_key_hash", "is required for updates")
 	}
 
-	// Sanitize and validate
-	SanitizeAPIKeyInfo(apiKeyInfo)
-	if err := ValidateAPIKeyInfo(apiKeyInfo); err != nil {
+	// Create a defensive copy to avoid mutating the caller's data
+	// This prevents data races when the same pointer is passed concurrently
+	apiKeyInfoCopy := &APIKeyInfo{
+		APIKeyHash: apiKeyInfo.APIKeyHash,
+		APIKeyHint: apiKeyInfo.APIKeyHint,
+		UserID:     apiKeyInfo.UserID,
+		OrgID:      apiKeyInfo.OrgID,
+		Name:       apiKeyInfo.Name,
+		Email:      apiKeyInfo.Email,
+		Roles:      append([]string{}, apiKeyInfo.Roles...),
+		Rights:     append([]string{}, apiKeyInfo.Rights...),
+		Metadata:   make(map[string]any, len(apiKeyInfo.Metadata)),
+	}
+	// Deep copy metadata
+	for k, v := range apiKeyInfo.Metadata {
+		apiKeyInfoCopy.Metadata[k] = v
+	}
+
+	// Sanitize and validate the copy
+	SanitizeAPIKeyInfo(apiKeyInfoCopy)
+	if err := ValidateAPIKeyInfo(apiKeyInfoCopy); err != nil {
 		s.logger.Warn("API key validation failed",
-			zap.String("hash", apiKeyInfo.APIKeyHash),
+			zap.String("hash", apiKeyInfoCopy.APIKeyHash),
 			zap.Error(err))
 		return err
 	}
 
 	// Clear the plain API key if somehow provided (should never be stored)
-	apiKeyInfo.APIKey = ""
+	apiKeyInfoCopy.APIKey = ""
 
 	// Update in repository
-	err := s.repo.Update(ctx, apiKeyInfo)
+	err := s.repo.Update(ctx, apiKeyInfoCopy)
 	if err != nil {
 		if IsNotFoundError(err) {
 			s.logger.Warn("API key not found for update",
-				zap.String("hash", apiKeyInfo.APIKeyHash))
+				zap.String("hash", apiKeyInfoCopy.APIKeyHash))
 			return ErrAPIKeyNotFound
 		}
 		s.logger.Error("Failed to update API key",
-			zap.String("hash", apiKeyInfo.APIKeyHash),
+			zap.String("hash", apiKeyInfoCopy.APIKeyHash),
 			zap.Error(err))
 		return err
 	}
 
+	// Invalidate cache entry
+	if s.cache != nil {
+		s.cache.Remove(apiKeyInfoCopy.APIKeyHash)
+		s.logger.Debug("Cache invalidated after update",
+			zap.String("hash", apiKeyInfoCopy.APIKeyHash))
+	}
+
 	s.logger.Info("API key updated",
-		zap.String("hash", apiKeyInfo.APIKeyHash),
-		zap.String("user_id", apiKeyInfo.UserID))
+		zap.String("hash", apiKeyInfoCopy.APIKeyHash),
+		zap.String("user_id", apiKeyInfoCopy.UserID))
 
 	return nil
 }
@@ -239,6 +343,13 @@ func (s *APIKeyService) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 			zap.String("hash", hash),
 			zap.Error(err))
 		return err
+	}
+
+	// Invalidate cache entry
+	if s.cache != nil {
+		s.cache.Remove(hash)
+		s.logger.Debug("Cache invalidated after deletion",
+			zap.String("hash", hash))
 	}
 
 	s.logger.Info("API key deleted",

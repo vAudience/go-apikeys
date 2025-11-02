@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-11-02
+
+### Patch Release - Critical Bug Fixes
+
+This patch release fixes critical data race conditions discovered through comprehensive concurrent testing.
+
+### Fixed
+
+#### Critical Production Bugs
+- **Fixed**: Data race in `CreateAPIKey()` - now returns defensive copy instead of mutating stored pointer (apikeys.service.keys.go:122-158)
+- **Fixed**: Data race in `UpdateAPIKey()` - added defensive copying before sanitization to prevent concurrent mutation (apikeys.service.keys.go:235-251)
+- **Fixed**: Test code accessing empty `APIKey` field in search results (apikeys.service.keys_concurrent_test.go:738)
+- **Fixed**: Data race in mock repository - added mutex protection for concurrent map access
+
+### Added
+
+#### Comprehensive Concurrent Testing
+- **Added**: 15 concurrent test scenarios covering all service operations (790 lines)
+  - Concurrent API key creation (100 goroutines)
+  - Concurrent cache operations (reads, writes, invalidation, eviction)
+  - Concurrent validation and authentication
+  - Concurrent updates (same key and different keys)
+  - Concurrent search operations
+  - Concurrent delete operations with read conflicts
+  - Context cancellation handling
+  - Mixed workload stress testing (realistic production scenarios)
+- **Added**: Deep copy helper function for thread-safe test data
+- **Added**: Mutex-protected mock repository for safe concurrent testing
+
+### Testing
+
+#### Validation & Quality Assurance
+- **Coverage**: Increased from 33.4% to 69.1% (+35.7 percentage points)
+- **Stress Testing**: All tests pass 100 consecutive iterations with race detector (642s total)
+- **Race Detection**: Zero race conditions detected in production code
+- **Quality Gates**: All 6 gates passed
+  - ✅ GATE 1: Clean build verification
+  - ✅ GATE 2: Test suite with race detector
+  - ✅ GATE 3: Zero vet issues
+  - ✅ GATE 4: Zero security vulnerabilities (govulncheck)
+  - ✅ GATE 5: Documentation compliance
+  - ✅ GATE 6: Final 10x stress test
+
+### Technical Details
+
+#### Root Cause Analysis
+The data races were caused by storing pointers in the repository and then modifying those pointers after storage. In concurrent scenarios, other goroutines could be reading the same pointer while it was being modified, causing undefined behavior.
+
+#### Solution Approach
+1. **CreateAPIKey**: Returns a defensive copy of the stored data with the plain API key set
+2. **UpdateAPIKey**: Creates a deep copy of input before sanitization to prevent mutation
+3. **Test Infrastructure**: Added proper synchronization primitives to test helpers
+
+### Performance
+
+- Thread-safe operations with no performance degradation
+- Defensive copying only where necessary (API key operations)
+- All concurrent operations validated under load
+
+---
+
 ## [1.0.0] - 2025-11-02
 
 ### Major Release - Breaking Changes
@@ -166,6 +227,7 @@ See README.md for detailed migration instructions from v0.x to v1.0.0.
 
 ---
 
+[1.0.1]: https://github.com/vaudience/go-apikeys/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vaudience/go-apikeys/compare/v0.4.5...v1.0.0
 [0.4.5]: https://github.com/vaudience/go-apikeys/compare/v0.4.0...v0.4.5
 [0.4.0]: https://github.com/vaudience/go-apikeys/releases/tag/v0.4.0

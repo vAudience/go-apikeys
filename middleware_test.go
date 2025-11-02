@@ -29,7 +29,7 @@ func (m *mockRateLimiter) Allow(ctx context.Context, framework HTTPFramework, re
 func setupMiddlewareTest() (*APIKeyManager, *mockRepository, *APIKeyInfo) {
 	mockRepo := newMockRepository()
 	logger, _ := zap.NewDevelopment()
-	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH)
+	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH, 0, 0)
 	if err != nil {
 		panic(err) // OK in test setup
 	}

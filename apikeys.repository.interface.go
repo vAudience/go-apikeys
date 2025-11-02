@@ -7,6 +7,7 @@ package apikeys
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/itsatony/go-datarepository"
 )
@@ -61,7 +62,7 @@ func NewDataRepositoryAdapter(repo datarepository.DataRepository) (*DataReposito
 // Create implements APIKeyRepository.Create
 func (a *DataRepositoryAdapter) Create(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
 	if apiKeyInfo == nil {
-		return NewValidationError("api_key_info", "cannot be nil")
+		return fmt.Errorf("%w: api_key_info cannot be nil", ErrInvalidInput)
 	}
 
 	// Use hash as the identifier
@@ -79,7 +80,7 @@ func (a *DataRepositoryAdapter) Create(ctx context.Context, apiKeyInfo *APIKeyIn
 // GetByHash implements APIKeyRepository.GetByHash
 func (a *DataRepositoryAdapter) GetByHash(ctx context.Context, hash string) (*APIKeyInfo, error) {
 	if hash == "" {
-		return nil, NewValidationError("hash", "cannot be empty")
+		return nil, fmt.Errorf("%w: hash cannot be empty", ErrInvalidInput)
 	}
 
 	identifier := datarepository.SimpleIdentifier(hash)
@@ -99,7 +100,7 @@ func (a *DataRepositoryAdapter) GetByHash(ctx context.Context, hash string) (*AP
 // Update implements APIKeyRepository.Update
 func (a *DataRepositoryAdapter) Update(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
 	if apiKeyInfo == nil {
-		return NewValidationError("api_key_info", "cannot be nil")
+		return fmt.Errorf("%w: api_key_info cannot be nil", ErrInvalidInput)
 	}
 
 	// Check if exists first
@@ -124,7 +125,7 @@ func (a *DataRepositoryAdapter) Update(ctx context.Context, apiKeyInfo *APIKeyIn
 // Delete implements APIKeyRepository.Delete
 func (a *DataRepositoryAdapter) Delete(ctx context.Context, hash string) error {
 	if hash == "" {
-		return NewValidationError("hash", "cannot be empty")
+		return fmt.Errorf("%w: hash cannot be empty", ErrInvalidInput)
 	}
 
 	// Check if exists first
@@ -198,7 +199,7 @@ func (a *DataRepositoryAdapter) Search(ctx context.Context, query map[string]int
 // Exists implements APIKeyRepository.Exists
 func (a *DataRepositoryAdapter) Exists(ctx context.Context, hash string) (bool, error) {
 	if hash == "" {
-		return false, NewValidationError("hash", "cannot be empty")
+		return false, fmt.Errorf("%w: hash cannot be empty", ErrInvalidInput)
 	}
 
 	identifier := datarepository.SimpleIdentifier(hash)

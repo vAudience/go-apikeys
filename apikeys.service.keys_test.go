@@ -2,6 +2,7 @@ package apikeys
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 
 // mockRepository is a simple in-memory repository for testing
 type mockRepository struct {
+	mu   sync.RWMutex
 	data map[string]*APIKeyInfo
 }
 
@@ -24,6 +26,8 @@ func (m *mockRepository) Create(ctx context.Context, apiKeyInfo *APIKeyInfo) err
 	if apiKeyInfo.APIKeyHash == "" {
 		return NewValidationError("api_key_hash", "cannot be empty")
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.data[apiKeyInfo.APIKeyHash]; exists {
 		return NewValidationError("api_key", "already exists")
 	}
@@ -32,6 +36,8 @@ func (m *mockRepository) Create(ctx context.Context, apiKeyInfo *APIKeyInfo) err
 }
 
 func (m *mockRepository) GetByHash(ctx context.Context, hash string) (*APIKeyInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if info, exists := m.data[hash]; exists {
 		return info, nil
 	}
@@ -39,6 +45,8 @@ func (m *mockRepository) GetByHash(ctx context.Context, hash string) (*APIKeyInf
 }
 
 func (m *mockRepository) Update(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.data[apiKeyInfo.APIKeyHash]; !exists {
 		return ErrAPIKeyNotFound
 	}
@@ -47,6 +55,8 @@ func (m *mockRepository) Update(ctx context.Context, apiKeyInfo *APIKeyInfo) err
 }
 
 func (m *mockRepository) Delete(ctx context.Context, hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.data[hash]; !exists {
 		return ErrAPIKeyNotFound
 	}
@@ -55,6 +65,9 @@ func (m *mockRepository) Delete(ctx context.Context, hash string) error {
 }
 
 func (m *mockRepository) Search(ctx context.Context, query map[string]interface{}, offset, limit int) ([]*APIKeyInfo, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var results []*APIKeyInfo
 	for _, info := range m.data {
 		results = append(results, info)
@@ -82,6 +95,8 @@ func (m *mockRepository) Search(ctx context.Context, query map[string]interface{
 }
 
 func (m *mockRepository) Exists(ctx context.Context, hash string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	_, exists := m.data[hash]
 	return exists, nil
 }
@@ -89,7 +104,7 @@ func (m *mockRepository) Exists(ctx context.Context, hash string) (bool, error) 
 func setupTestService() (*APIKeyService, *mockRepository) {
 	repo := newMockRepository()
 	logger, _ := zap.NewDevelopment()
-	service, err := NewAPIKeyService(repo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH)
+	service, err := NewAPIKeyService(repo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH, 0, 0)
 	if err != nil {
 		panic(err) // OK in test setup
 	}

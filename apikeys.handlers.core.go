@@ -71,7 +71,7 @@ func (h *HandlerCore) HandleCreateAPIKey(ctx context.Context, requestBody []byte
 		h.manager.logger.Error(LOG_MSG_CREATE_APIKEY_FAILED,
 			zap.String(LOG_FIELD_USER_ID, newKeyInfo.UserID),
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_CREATE_APIKEY_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
 	// Filter response (remove sensitive data)
@@ -92,14 +92,20 @@ func (h *HandlerCore) HandleSearchAPIKeys(ctx context.Context, apiKeyInfo *APIKe
 	}
 
 	// Search via service
-	apiKeyInfos, _, err := h.manager.SearchAPIKeys(ctx, DEFAULT_QUERY_OFFSET, DEFAULT_QUERY_LIMIT)
+	apiKeyInfos, total, err := h.manager.SearchAPIKeys(ctx, DEFAULT_QUERY_OFFSET, DEFAULT_QUERY_LIMIT)
 	if err != nil {
 		h.manager.logger.Error(LOG_MSG_SEARCH_APIKEYS_FAILED,
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_SEARCH_APIKEYS_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
-	return NewSuccessResult(http.StatusOK, apiKeyInfos)
+	// Wrap results in response structure
+	response := map[string]interface{}{
+		"items": apiKeyInfos,
+		"total": total,
+	}
+
+	return NewSuccessResult(http.StatusOK, response)
 }
 
 // HandleGetAPIKey handles retrieving a single API key (framework-agnostic)
@@ -117,13 +123,10 @@ func (h *HandlerCore) HandleGetAPIKey(ctx context.Context, keyOrHash string, api
 	// Get via service
 	retrievedKey, err := h.manager.GetAPIKeyInfo(ctx, keyOrHash)
 	if err != nil {
-		if err == ErrAPIKeyNotFound {
-			return NewErrorResult(http.StatusNotFound, ERROR_API_KEY_NOT_FOUND)
-		}
 		h.manager.logger.Error(LOG_MSG_GET_APIKEY_FAILED,
 			zap.String(LOG_FIELD_HASH, keyOrHash),
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_GET_APIKEY_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
 	return NewSuccessResult(http.StatusOK, retrievedKey)
@@ -156,7 +159,7 @@ func (h *HandlerCore) HandleUpdateAPIKey(ctx context.Context, keyOrHash string, 
 		h.manager.logger.Error(LOG_MSG_UPDATE_APIKEY_FAILED,
 			zap.String(LOG_FIELD_HASH, keyOrHash),
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_UPDATE_APIKEY_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
 	// Retrieve updated key
@@ -165,7 +168,7 @@ func (h *HandlerCore) HandleUpdateAPIKey(ctx context.Context, keyOrHash string, 
 		h.manager.logger.Error(LOG_MSG_GET_APIKEY_FAILED,
 			zap.String(LOG_FIELD_HASH, keyOrHash),
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_GET_APIKEY_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
 	return NewSuccessResult(http.StatusOK, updatedKey)
@@ -186,13 +189,10 @@ func (h *HandlerCore) HandleDeleteAPIKey(ctx context.Context, keyOrHash string, 
 	// Delete via service
 	err := h.manager.DeleteAPIKey(ctx, keyOrHash)
 	if err != nil {
-		if err == ErrAPIKeyNotFound {
-			return NewErrorResult(http.StatusNotFound, ERROR_API_KEY_NOT_FOUND)
-		}
 		h.manager.logger.Error(LOG_MSG_DELETE_APIKEY_FAILED,
 			zap.String(LOG_FIELD_HASH, keyOrHash),
 			zap.Error(err))
-		return NewErrorResult(http.StatusInternalServerError, ERROR_DELETE_APIKEY_FAILED)
+		return NewErrorResult(ErrorToHTTPStatus(err), err.Error())
 	}
 
 	return NewSuccessResult(http.StatusNoContent, nil)

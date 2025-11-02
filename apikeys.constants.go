@@ -18,6 +18,12 @@ const (
 	DEFAULT_CRUD_ENABLED       = false
 	DEFAULT_BOOTSTRAP_ENABLED  = false
 
+	// Cache configuration defaults
+	DEFAULT_CACHE_ENABLED = true          // Cache enabled by default for performance
+	DEFAULT_CACHE_SIZE    = 1000          // Number of API keys to cache
+	DEFAULT_CACHE_TTL     = 300           // TTL in seconds (5 minutes)
+	CACHE_DISABLED_SIZE   = 0             // Set cache size to 0 to disable
+
 	// HTTP headers
 	HEADER_API_KEY       = "X-API-Key"
 	HEADER_AUTHORIZATION = "Authorization"
@@ -122,16 +128,24 @@ const (
 	LOG_MSG_CRUD_ROUTES_REGISTERED    = "[GO-APIKEYS.RegisterCRUDRoutes] CRUD routes registered"
 
 	// Log field names (for structured logging)
-	LOG_FIELD_USER_ID     = "user_id"
-	LOG_FIELD_ORG_ID      = "org_id"
-	LOG_FIELD_HASH        = "hash"
-	LOG_FIELD_HINT        = "hint"
-	LOG_FIELD_EMAIL       = "email"
-	LOG_FIELD_NAME        = "name"
-	LOG_FIELD_PATH        = "path"
-	LOG_FIELD_METHOD      = "method"
-	LOG_FIELD_STATUS_CODE = "status_code"
-	LOG_FIELD_ERROR       = "error"
+	LOG_FIELD_USER_ID        = "user_id"
+	LOG_FIELD_ORG_ID         = "org_id"
+	LOG_FIELD_HASH           = "hash"
+	LOG_FIELD_HINT           = "hint"
+	LOG_FIELD_EMAIL          = "email"
+	LOG_FIELD_NAME           = "name"
+	LOG_FIELD_PATH           = "path"
+	LOG_FIELD_METHOD         = "method"
+	LOG_FIELD_STATUS_CODE       = "status_code"
+	LOG_FIELD_ERROR             = "error"
+	LOG_FIELD_REQUIRED_FIELD    = "required_field"
+	LOG_FIELD_CURRENT_VALUE     = "current_value"
+	LOG_FIELD_VERSION           = "version"
+	LOG_FIELD_PREFIX            = "prefix"
+	LOG_FIELD_KEY_LENGTH        = "key_length"
+	LOG_FIELD_CRUD_ENABLED      = "crud_enabled"
+	LOG_FIELD_RATE_LIMIT_ENABLED = "rate_limit_enabled"
+	LOG_FIELD_BOOTSTRAP_ENABLED  = "bootstrap_enabled"
 
 	// Response JSON keys
 	RESPONSE_KEY_IS_SYSTEM_ADMIN = "isSystemAdmin"

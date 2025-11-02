@@ -39,11 +39,35 @@ func (r *RateLimiter) Allow(ctx context.Context, framework HTTPFramework, req in
 			var key string
 			switch applyTo {
 			case RateLimitRuleTargetAPIKey:
-				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).APIKeyHash
+				val := framework.GetContextValue(req, LOCALS_KEY_APIKEYS)
+				if val == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("API key info not found in context for RateLimitRuleTargetAPIKey"))
+				}
+				apiKeyInfo, ok := val.(*APIKeyInfo)
+				if !ok || apiKeyInfo == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("invalid API key info type in context for RateLimitRuleTargetAPIKey"))
+				}
+				key = apiKeyInfo.APIKeyHash
 			case RateLimitRuleTargetUserID:
-				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).UserID
+				val := framework.GetContextValue(req, LOCALS_KEY_APIKEYS)
+				if val == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("API key info not found in context for RateLimitRuleTargetUserID"))
+				}
+				apiKeyInfo, ok := val.(*APIKeyInfo)
+				if !ok || apiKeyInfo == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("invalid API key info type in context for RateLimitRuleTargetUserID"))
+				}
+				key = apiKeyInfo.UserID
 			case RateLimitRuleTargetOrgID:
-				key = framework.GetContextValue(req, LOCALS_KEY_APIKEYS).(*APIKeyInfo).OrgID
+				val := framework.GetContextValue(req, LOCALS_KEY_APIKEYS)
+				if val == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("API key info not found in context for RateLimitRuleTargetOrgID"))
+				}
+				apiKeyInfo, ok := val.(*APIKeyInfo)
+				if !ok || apiKeyInfo == nil {
+					return false, NewInternalError("rate_limiter", fmt.Errorf("invalid API key info type in context for RateLimitRuleTargetOrgID"))
+				}
+				key = apiKeyInfo.OrgID
 			default:
 				continue
 			}

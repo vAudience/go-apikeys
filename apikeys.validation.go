@@ -59,6 +59,12 @@ func (v *ValidationErrors) ToError() error {
 	return v
 }
 
+// Unwrap implements error unwrapping for ValidationErrors.
+// This allows errors.Is() to recognize ValidationErrors as ErrInvalidInput.
+func (v *ValidationErrors) Unwrap() error {
+	return ErrInvalidInput
+}
+
 // ValidateAPIKeyInfo validates an APIKeyInfo structure comprehensively.
 // Returns nil if valid, ValidationErrors if invalid.
 func ValidateAPIKeyInfo(info *APIKeyInfo) error {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -77,10 +78,37 @@ func (b *BootstrapService) Bootstrap(ctx context.Context) (*APIKeyInfo, error) {
 	// Safety check: Require explicit security risk acknowledgment
 	if !b.config.IUnderstandSecurityRisks {
 		b.logger.Error("Bootstrap blocked: security risk acknowledgment required",
-			zap.String("required_field", "IUnderstandSecurityRisks"),
-			zap.Bool("current_value", b.config.IUnderstandSecurityRisks))
+			zap.String(LOG_FIELD_REQUIRED_FIELD, "IUnderstandSecurityRisks"),
+			zap.Bool(LOG_FIELD_CURRENT_VALUE, b.config.IUnderstandSecurityRisks))
 		return nil, NewValidationError("bootstrap_config.i_understand_security_risks",
 			"must be true to enable bootstrap - acknowledges that API key will be logged in plain text")
+	}
+
+	// Safety check: Detect production environment and block unless explicitly allowed
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("ENVIRONMENT")
+	}
+	if env == "" {
+		env = os.Getenv("GO_ENV")
+	}
+
+	isProd := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
+
+	if isProd && !b.config.AllowBootstrapInProduction {
+		b.logger.Error("Bootstrap blocked: production environment detected",
+			zap.String("environment", env),
+			zap.Bool("allow_bootstrap_in_production", b.config.AllowBootstrapInProduction))
+		return nil, NewValidationError("bootstrap",
+			"Bootstrap is disabled in production for security. "+
+				"Set AllowBootstrapInProduction=true to override, "+
+				"or run bootstrap in a non-production environment. "+
+				"Detected environment: "+env)
+	}
+
+	if isProd && b.config.AllowBootstrapInProduction {
+		b.logger.Warn("Bootstrap running in PRODUCTION environment - ensure logs are secured!",
+			zap.String("environment", env))
 	}
 
 	// Check if bootstrap is needed
@@ -140,7 +168,7 @@ func (b *BootstrapService) Bootstrap(ctx context.Context) (*APIKeyInfo, error) {
 	if b.config.RecoveryPath != "" {
 		if err := b.saveToRecoveryFile(createdKey); err != nil {
 			b.logger.Warn("Failed to save bootstrap key to recovery file",
-				zap.String("path", b.config.RecoveryPath),
+				zap.String(LOG_FIELD_PATH, b.config.RecoveryPath),
 				zap.Error(err))
 			// Don't fail bootstrap if recovery file write fails
 		}
@@ -182,7 +210,7 @@ Store this key securely and DELETE THIS FILE immediately after.
 	}
 
 	b.logger.Warn("Bootstrap key saved to recovery file",
-		zap.String("path", b.config.RecoveryPath))
+		zap.String(LOG_FIELD_PATH, b.config.RecoveryPath))
 
 	return nil
 }

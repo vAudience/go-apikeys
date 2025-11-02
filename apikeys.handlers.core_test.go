@@ -16,7 +16,7 @@ func setupHandlerTest() (*HandlerCore, *APIKeyManager, *mockRepository) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create service directly with mock repository (implements APIKeyRepository interface)
-	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH)
+	service, err := NewAPIKeyService(mockRepo, logger, DEFAULT_APIKEY_PREFIX, DEFAULT_APIKEY_LENGTH, 0, 0)
 	if err != nil {
 		panic(err) // OK in test setup
 	}
@@ -127,8 +127,8 @@ func TestHandlerCore_HandleCreateAPIKey(t *testing.T) {
 		adminKey := createSystemAdminKey(t, manager)
 		body := []byte(`{"org_id":"test"}`)
 		result := core.HandleCreateAPIKey(ctx, body, adminKey)
-		assert.Equal(t, http.StatusInternalServerError, result.StatusCode)
-		assert.Equal(t, ERROR_CREATE_APIKEY_FAILED, result.Error)
+		assert.Equal(t, http.StatusBadRequest, result.StatusCode)
+		assert.Contains(t, result.Error, "user_id")
 	})
 }
 
@@ -153,7 +153,12 @@ func TestHandlerCore_HandleSearchAPIKeys(t *testing.T) {
 		assert.Empty(t, result.Error)
 		assert.NotNil(t, result.Data)
 
-		keys, ok := result.Data.([]*APIKeyInfo)
+		response, ok := result.Data.(map[string]interface{})
+		assert.True(t, ok, "Expected response to be a map")
+		assert.Contains(t, response, "items")
+		assert.Contains(t, response, "total")
+
+		keys, ok := response["items"].([]*APIKeyInfo)
 		assert.True(t, ok)
 		assert.NotEmpty(t, keys)
 	})
@@ -218,7 +223,7 @@ func TestHandlerCore_HandleGetAPIKey(t *testing.T) {
 		adminKey := createSystemAdminKey(t, manager)
 		result := core.HandleGetAPIKey(ctx, "nonexistent-hash", adminKey)
 		assert.Equal(t, http.StatusNotFound, result.StatusCode)
-		assert.Equal(t, ERROR_API_KEY_NOT_FOUND, result.Error)
+		assert.Contains(t, result.Error, "not found")
 	})
 }
 
@@ -323,7 +328,7 @@ func TestHandlerCore_HandleDeleteAPIKey(t *testing.T) {
 		adminKey := createSystemAdminKey(t, manager)
 		result := core.HandleDeleteAPIKey(ctx, "nonexistent-hash", adminKey)
 		assert.Equal(t, http.StatusNotFound, result.StatusCode)
-		assert.Equal(t, ERROR_API_KEY_NOT_FOUND, result.Error)
+		assert.Contains(t, result.Error, "not found")
 	})
 }
 

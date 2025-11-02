@@ -49,10 +49,13 @@ func (g *GorillaMuxFramework) GetRequestPath(r interface{}) string {
 	return r.(*http.Request).URL.Path
 }
 
-func (g *GorillaMuxFramework) WrapMiddleware(next http.HandlerFunc) interface{} {
-	return func(w http.ResponseWriter, r *http.Request) {
-		next(w, r)
+func (g *GorillaMuxFramework) WrapMiddleware(next interface{}) interface{} {
+	if handler, ok := next.(http.HandlerFunc); ok {
+		return func(w http.ResponseWriter, r *http.Request) {
+			handler(w, r)
+		}
 	}
+	return nil
 }
 
 // MuxMiddleware returns a Gorilla Mux-compatible middleware handler
