@@ -16,7 +16,7 @@ import (
 )
 
 // =============================================================================
-// Note: mockRepository and mockRateLimiter are defined in their respective test files
+// Note: mockRepository is defined in its respective test file
 // =============================================================================
 
 // =============================================================================
@@ -28,13 +28,13 @@ type mockRepositoryWithErrors struct {
 	data map[string]*APIKeyInfo
 
 	// Error injection flags
-	createError    error
-	getError       error
-	updateError    error
-	deleteError    error
-	searchError    error
-	existsError    error
-	serialization  error
+	createError     error
+	getError        error
+	updateError     error
+	deleteError     error
+	searchError     error
+	existsError     error
+	serialization   error
 	deserialization error
 }
 
@@ -276,7 +276,6 @@ func (m *mockResponseWriter) Write(b []byte) (int, error) {
 func (m *mockResponseWriter) WriteHeader(statusCode int) {
 	m.statusCode = statusCode
 }
-
 
 // =============================================================================
 // Test Config Builders

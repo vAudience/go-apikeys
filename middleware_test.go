@@ -13,19 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockRateLimiter for testing
-type mockRateLimiter struct {
-	allowResult bool
-	errorResult error
-}
-
-func (m *mockRateLimiter) Allow(ctx context.Context, framework HTTPFramework, req interface{}) (bool, error) {
-	if m.errorResult != nil {
-		return false, m.errorResult
-	}
-	return m.allowResult, nil
-}
-
 func setupMiddlewareTest() (*APIKeyManager, *mockRepository, *APIKeyInfo) {
 	mockRepo := newMockRepository()
 	logger, _ := zap.NewDevelopment()
@@ -160,82 +147,6 @@ func TestStandardMiddleware(t *testing.T) {
 		assert.True(t, handlerCalled)
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
-
-	t.Run("rate limit exceeded returns 429", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{allowResult: false}
-
-		middleware := manager.standardMiddleware()
-
-		handlerCalled := false
-		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlerCalled = true
-			w.WriteHeader(http.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-		w := httptest.NewRecorder()
-
-		handler := middleware(nextHandler)
-		handler.ServeHTTP(w, req)
-
-		assert.False(t, handlerCalled)
-		assert.Equal(t, http.StatusTooManyRequests, w.Code)
-		body, _ := io.ReadAll(w.Body)
-		assert.Contains(t, string(body), "rate limit exceeded")
-	})
-
-	t.Run("rate limit allowed passes through", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{allowResult: true}
-
-		middleware := manager.standardMiddleware()
-
-		handlerCalled := false
-		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlerCalled = true
-			w.WriteHeader(http.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-		w := httptest.NewRecorder()
-
-		handler := middleware(nextHandler)
-		handler.ServeHTTP(w, req)
-
-		assert.True(t, handlerCalled)
-		assert.Equal(t, http.StatusOK, w.Code)
-	})
-
-	t.Run("rate limit error returns 500", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{
-			errorResult: NewInternalError("rate_limit_check", nil),
-		}
-
-		middleware := manager.standardMiddleware()
-
-		handlerCalled := false
-		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlerCalled = true
-			w.WriteHeader(http.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-		w := httptest.NewRecorder()
-
-		handler := middleware(nextHandler)
-		handler.ServeHTTP(w, req)
-
-		assert.False(t, handlerCalled)
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-	})
 }
 
 // Test Fiber middleware
@@ -336,80 +247,6 @@ func TestFiberMiddleware(t *testing.T) {
 
 		assert.True(t, handlerCalled)
 		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
-	})
-
-	t.Run("rate limit exceeded returns 429", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{allowResult: false}
-
-		app := fiber.New()
-		app.Use(manager.fiberMiddleware())
-
-		handlerCalled := false
-		app.Get("/test", func(c *fiber.Ctx) error {
-			handlerCalled = true
-			return c.SendStatus(fiber.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-
-		assert.False(t, handlerCalled)
-		assert.Equal(t, fiber.StatusTooManyRequests, resp.StatusCode)
-	})
-
-	t.Run("rate limit allowed passes through", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{allowResult: true}
-
-		app := fiber.New()
-		app.Use(manager.fiberMiddleware())
-
-		handlerCalled := false
-		app.Get("/test", func(c *fiber.Ctx) error {
-			handlerCalled = true
-			return c.SendStatus(fiber.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-
-		assert.True(t, handlerCalled)
-		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
-	})
-
-	t.Run("rate limit error returns 500", func(t *testing.T) {
-		manager, _, testKey := setupMiddlewareTest()
-		manager.config.EnableRateLimit = true
-		manager.limiter = &mockRateLimiter{
-			errorResult: NewInternalError("rate_limit_check", nil),
-		}
-
-		app := fiber.New()
-		app.Use(manager.fiberMiddleware())
-
-		handlerCalled := false
-		app.Get("/test", func(c *fiber.Ctx) error {
-			handlerCalled = true
-			return c.SendStatus(fiber.StatusOK)
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("X-API-Key", testKey.APIKey)
-
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-
-		assert.False(t, handlerCalled)
-		assert.Equal(t, fiber.StatusInternalServerError, resp.StatusCode)
 	})
 }
 

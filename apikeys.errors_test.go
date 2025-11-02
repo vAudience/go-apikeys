@@ -158,7 +158,6 @@ func TestIsInternalError(t *testing.T) {
 		assert.True(t, IsInternalError(ErrFailedToCreateAPIKey))
 		assert.True(t, IsInternalError(ErrFailedToUpdateAPIKey))
 		assert.True(t, IsInternalError(ErrFailedToDeleteAPIKey))
-		assert.True(t, IsInternalError(ErrFailedToCheckRateLimit))
 	})
 
 	t.Run("returns false for different error", func(t *testing.T) {
@@ -182,35 +181,11 @@ func TestIsTimeoutError(t *testing.T) {
 	})
 
 	t.Run("returns false for different error", func(t *testing.T) {
-		assert.False(t, IsTimeoutError(ErrRateLimit))
+		assert.False(t, IsTimeoutError(ErrInternal))
 	})
 
 	t.Run("returns false for nil", func(t *testing.T) {
 		assert.False(t, IsTimeoutError(nil))
-	})
-}
-
-func TestIsRateLimitError(t *testing.T) {
-	t.Run("detects rate limit error", func(t *testing.T) {
-		err := ErrRateLimit
-		assert.True(t, IsRateLimitError(err))
-	})
-
-	t.Run("detects wrapped rate limit error", func(t *testing.T) {
-		err := fmt.Errorf("wrapped: %w", ErrRateLimit)
-		assert.True(t, IsRateLimitError(err))
-	})
-
-	t.Run("detects rate limit exceeded error", func(t *testing.T) {
-		assert.True(t, IsRateLimitError(ErrRateLimitExceeded))
-	})
-
-	t.Run("returns false for different error", func(t *testing.T) {
-		assert.False(t, IsRateLimitError(ErrTimeout))
-	})
-
-	t.Run("returns false for nil", func(t *testing.T) {
-		assert.False(t, IsRateLimitError(nil))
 	})
 }
 
@@ -368,21 +343,6 @@ func TestNewTimeoutError(t *testing.T) {
 	})
 }
 
-func TestNewRateLimitError(t *testing.T) {
-	t.Run("creates rate limit error with limit and window", func(t *testing.T) {
-		err := NewRateLimitError(100, "60s")
-		require.Error(t, err)
-		// Should contain window information
-		assert.NotEmpty(t, err.Error())
-	})
-
-	t.Run("maps to correct HTTP status", func(t *testing.T) {
-		err := NewRateLimitError(50, "1m")
-		status := ErrorToHTTPStatus(err)
-		assert.Equal(t, 429, status)
-	})
-}
-
 func TestNewConflictError(t *testing.T) {
 	t.Run("creates conflict error with resource, field, and value", func(t *testing.T) {
 		err := NewConflictError("api_key", "hash", "abc123")
@@ -484,7 +444,6 @@ func TestErrorToHTTPStatus(t *testing.T) {
 		{"unauthorized returns 401", ErrUnauthorized, 401},
 		{"forbidden returns 403", ErrForbidden, 403},
 		{"timeout returns 408", ErrTimeout, 408},
-		{"rate limit returns 429", ErrRateLimit, 429},
 		{"external returns 502", ErrExternal, 502},
 		{"internal returns 500", ErrInternal, 500},
 		{"unknown returns 500", errors.New("unknown"), 500},
@@ -492,7 +451,6 @@ func TestErrorToHTTPStatus(t *testing.T) {
 		{"domain api key not found returns 404", ErrAPIKeyNotFound, 404},
 		{"domain invalid api key returns 400", ErrInvalidAPIKey, 400},
 		{"domain unauthorized access returns 401", ErrUnauthorizedAccess, 401},
-		{"domain rate limit exceeded returns 429", ErrRateLimitExceeded, 429},
 	}
 
 	for _, tt := range tests {
@@ -600,7 +558,6 @@ func TestErrorCheckersWithNilError(t *testing.T) {
 		assert.False(t, IsForbiddenError(nil))
 		assert.False(t, IsInternalError(nil))
 		assert.False(t, IsTimeoutError(nil))
-		assert.False(t, IsRateLimitError(nil))
 		assert.False(t, IsExternalError(nil))
 		assert.False(t, IsConfigurationError(nil))
 	})
@@ -617,7 +574,6 @@ func TestErrorCheckersWithCustomError(t *testing.T) {
 		assert.False(t, IsForbiddenError(customErr))
 		assert.False(t, IsInternalError(customErr))
 		assert.False(t, IsTimeoutError(customErr))
-		assert.False(t, IsRateLimitError(customErr))
 		assert.False(t, IsExternalError(customErr))
 		assert.False(t, IsConfigurationError(customErr))
 	})
@@ -635,12 +591,12 @@ func TestErrorChainWalking(t *testing.T) {
 	})
 
 	t.Run("http status walks error chain", func(t *testing.T) {
-		base := ErrRateLimit
-		wrapped := WrapErrorf(base, "rate limit for user %s", "bob")
+		base := ErrTimeout
+		wrapped := WrapErrorf(base, "timeout for user %s", "bob")
 		doubleWrapped := fmt.Errorf("operation failed: %w", wrapped)
 
 		status := ErrorToHTTPStatus(doubleWrapped)
-		assert.Equal(t, 429, status)
+		assert.Equal(t, 408, status)
 	})
 
 	t.Run("multiple wrapping preserves type for sentinel errors", func(t *testing.T) {

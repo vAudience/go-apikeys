@@ -207,8 +207,8 @@ func TestAPIKeyManager_New(t *testing.T) {
 		logger, _ := zap.NewDevelopment()
 
 		config := &Config{
-			Repository: repo,
-			Framework:  nil,
+			Repository:   repo,
+			Framework:    nil,
 			Logger:       logger,
 			ApiKeyPrefix: "gak",
 		}
@@ -246,8 +246,8 @@ func TestAPIKeyManager_New(t *testing.T) {
 			Repository:   repo,
 			Framework:    &GorillaMuxFramework{},
 			Logger:       logger,
-			ApiKeyPrefix: "gak",  // Set valid prefix to avoid multiple validation errors
-			ApiKeyLength: 5,      // Must be at least 10
+			ApiKeyPrefix: "gak", // Set valid prefix to avoid multiple validation errors
+			ApiKeyLength: 5,     // Must be at least 10
 		}
 
 		manager, err := New(config)
@@ -316,72 +316,6 @@ func TestAPIKeyManager_New(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, manager)
-	})
-
-	t.Run("successfully creates with rate limiting enabled", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "/api/.*",
-					Timespan: 60,
-					Limit:    100,
-					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
-				},
-			},
-		}
-
-		manager, err := New(config)
-
-		require.NoError(t, err)
-		assert.NotNil(t, manager)
-		assert.NotNil(t, manager.limiter)
-	})
-
-	t.Run("successfully creates with rate limiting disabled", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: false,
-		}
-
-		manager, err := New(config)
-
-		require.NoError(t, err)
-		assert.NotNil(t, manager)
-		assert.Nil(t, manager.limiter)
-	})
-
-	t.Run("fails with rate limiting enabled but no rules", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules:  []RateLimitRule{}, // Empty rules
-		}
-
-		manager, err := New(config)
-
-		assert.Error(t, err)
-		assert.Nil(t, manager)
-		assert.Contains(t, err.Error(), "rate_limit_rules")
 	})
 
 	t.Run("fails with invalid regex in ignore patterns", func(t *testing.T) {
@@ -495,23 +429,14 @@ func TestAPIKeyManager_New(t *testing.T) {
 		logger, _ := zap.NewDevelopment()
 
 		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableCache:     true,
-			CacheSize:       100,
-			CacheTTL:        3600,
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "/api/.*",
-					Timespan: 60,
-					Limit:    100,
-					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
-				},
-			},
-			EnableCRUD: true,
+			Repository:   repo,
+			Framework:    &GorillaMuxFramework{},
+			Logger:       logger,
+			ApiKeyPrefix: "gak",
+			EnableCache:  true,
+			CacheSize:    100,
+			CacheTTL:     3600,
+			EnableCRUD:   true,
 			IgnoreApiKeyForRoutePatterns: []string{
 				"/health",
 				"/metrics",
@@ -523,7 +448,6 @@ func TestAPIKeyManager_New(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.NotNil(t, manager.service)
-		assert.NotNil(t, manager.limiter)
 		assert.Len(t, manager.ignorePatterns, 2)
 	})
 
@@ -537,7 +461,6 @@ func TestAPIKeyManager_New(t *testing.T) {
 			Logger:          logger,
 			ApiKeyPrefix:    "gak",
 			EnableCache:     false,
-			EnableRateLimit: false,
 			EnableCRUD:      false,
 			EnableBootstrap: false,
 		}
@@ -546,7 +469,6 @@ func TestAPIKeyManager_New(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, manager)
-		assert.Nil(t, manager.limiter)
 	})
 
 	t.Run("service layer is properly initialized", func(t *testing.T) {
@@ -575,114 +497,6 @@ func TestAPIKeyManager_New(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, created.APIKey)
 		assert.NotEmpty(t, created.APIKeyHash)
-	})
-
-	t.Run("fails with invalid rate limit rule", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "[invalid-regex",
-					Timespan: 60,
-					Limit:    100,
-					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
-				},
-			},
-		}
-
-		manager, err := New(config)
-
-		assert.Error(t, err)
-		assert.Nil(t, manager)
-		assert.Contains(t, err.Error(), "path")
-	})
-
-	t.Run("fails with rate limit rule having invalid timespan", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "/api/.*",
-					Timespan: 0, // Invalid
-					Limit:    100,
-					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
-				},
-			},
-		}
-
-		manager, err := New(config)
-
-		assert.Error(t, err)
-		assert.Nil(t, manager)
-		assert.Contains(t, err.Error(), "timespan")
-	})
-
-	t.Run("fails with rate limit rule having invalid limit", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "/api/.*",
-					Timespan: 60,
-					Limit:    0, // Invalid
-					ApplyTo:  []RateLimitRuleTarget{RateLimitRuleTargetAPIKey},
-				},
-			},
-		}
-
-		manager, err := New(config)
-
-		assert.Error(t, err)
-		assert.Nil(t, manager)
-		assert.Contains(t, err.Error(), "limit")
-	})
-
-	t.Run("fails with rate limit rule having no apply_to targets", func(t *testing.T) {
-		repo := newMockDataRepositoryForManager()
-		logger, _ := zap.NewDevelopment()
-
-		config := &Config{
-			Repository:      repo,
-			Framework:       &GorillaMuxFramework{},
-			Logger:          logger,
-			ApiKeyPrefix:    "gak",
-			EnableRateLimit: true,
-			RateLimitRules: []RateLimitRule{
-				{
-					Path:     "/api/.*",
-					Timespan: 60,
-					Limit:    100,
-					ApplyTo:  []RateLimitRuleTarget{}, // Empty
-				},
-			},
-		}
-
-		manager, err := New(config)
-
-		assert.Error(t, err)
-		assert.Nil(t, manager)
-		assert.Contains(t, err.Error(), "apply_to")
 	})
 
 	t.Run("logs version information on creation", func(t *testing.T) {

@@ -5,6 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-11-02
+
+### Major Release - Focused Architecture
+
+This release removes built-in rate limiting to focus go-apikeys on its core responsibility: API key authentication and management.
+
+### Breaking Changes
+
+**REMOVED: Built-in Rate Limiting**
+- Removed `EnableRateLimit` config field
+- Removed `RateLimitRules` config field
+- Removed `RateLimitRule` model
+- Removed `RateLimiterInterface` and implementations
+- Removed `ErrRateLimitExceeded` and `ErrFailedToCheckRateLimit` errors
+- Removed rate limiting validation logic
+- Removed rate limiting tests (1,324 lines)
+
+**RATIONALE:**
+Following the Unix philosophy of "do one thing well," go-apikeys now focuses exclusively on:
+- ✅ API key authentication
+- ✅ API key management (CRUD)
+- ✅ Secure key generation and hashing
+- ✅ Framework-agnostic middleware
+
+Users now have full flexibility to choose their preferred rate limiting solution and compose it with go-apikeys.
+
+### Added
+
+**New Documentation**
+- **Added**: `docs/RATE_LIMITING.md` - Comprehensive guide for integrating rate limiting
+  - Recommended solution: [gorly](https://github.com/itsatony/gorly) (production-grade, tier-based)
+  - Full integration examples with go-apikeys
+  - Middleware composition patterns
+  - Alternative rate limiter options
+
+**Enhanced Features**
+- **Added**: "Composable" as core feature in README
+- **Improved**: Documentation focus on single responsibility
+- **Improved**: Cleaner configuration structure
+
+### Migration Guide (v1.x → v2.0.0)
+
+**If you were NOT using rate limiting:**
+- No changes required! Update your dependency and continue.
+
+**If you were using rate limiting:**
+1. Remove `EnableRateLimit` and `RateLimitRules` from your config
+2. Choose a rate limiting library (we recommend [gorly](https://github.com/itsatony/gorly))
+3. Integrate rate limiting middleware after go-apikeys middleware
+4. See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md) for complete examples
+
+Example migration:
+```go
+// OLD (v1.x)
+config := &apikeys.Config{
+    EnableRateLimit: true,
+    RateLimitRules: []apikeys.RateLimitRule{...},
+}
+
+// NEW (v2.x) - Use gorly or your preferred rate limiter
+import "github.com/itsatony/gorly"
+
+gorlyLimiter, _ := gorly.NewSimple(store, 100, time.Minute)
+handler := RateLimitMiddleware(gorlyLimiter)(apikeyManager.Middleware()(mux))
+```
+
+### Quality Metrics
+
+**Testing**
+- ✅ All 130+ tests pass
+- ✅ Zero race conditions
+- ✅ Clean build
+- ✅ Zero vet issues
+- ✅ Zero vulnerabilities (govulncheck)
+
+**Code Quality**
+- **Removed**: 1,324 lines of rate limiting code
+- **Improved**: Focused, maintainable codebase
+- **Improved**: Clear separation of concerns
+
 ## [1.0.1] - 2025-11-02
 
 ### Patch Release - Critical Bug Fixes

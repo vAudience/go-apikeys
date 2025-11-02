@@ -35,9 +35,6 @@ var (
 	// ErrTimeout indicates a timeout occurred (408, DEADLINE_EXCEEDED)
 	ErrTimeout = errors.New("timeout")
 
-	// ErrRateLimit indicates rate limit exceeded (429, RESOURCE_EXHAUSTED)
-	ErrRateLimit = errors.New("rate limit exceeded")
-
 	// ErrExternal indicates an external service failure (502, UNAVAILABLE)
 	ErrExternal = errors.New("external service error")
 
@@ -55,10 +52,6 @@ var (
 	ErrFailedToCreateAPIKey       = fmt.Errorf("%w: %s", ErrInternal, ERROR_FAILED_TO_CREATE_API_KEY)
 	ErrFailedToUpdateAPIKey       = fmt.Errorf("%w: %s", ErrInternal, ERROR_FAILED_TO_UPDATE_API_KEY)
 	ErrFailedToDeleteAPIKey       = fmt.Errorf("%w: %s", ErrInternal, ERROR_FAILED_TO_DELETE_API_KEY)
-
-	// Rate limiting errors
-	ErrRateLimitExceeded      = fmt.Errorf("%w: %s", ErrRateLimit, ERROR_RATE_LIMIT_EXCEEDED)
-	ErrFailedToCheckRateLimit = fmt.Errorf("%w: %s", ErrInternal, ERROR_FAILED_TO_CHECK_RATE_LIMIT)
 
 	// Authorization errors
 	ErrUnauthorizedAccess = fmt.Errorf("%w: %s", ErrUnauthorized, ERROR_UNAUTHORIZED_ACCESS)
@@ -106,10 +99,6 @@ func IsTimeoutError(err error) bool {
 	return errors.Is(err, ErrTimeout)
 }
 
-func IsRateLimitError(err error) bool {
-	return errors.Is(err, ErrRateLimit)
-}
-
 func IsExternalError(err error) bool {
 	return errors.Is(err, ErrExternal)
 }
@@ -146,11 +135,6 @@ func NewInternalError(component string, cause error) error {
 // NewTimeoutError creates a timeout error with operation context using go-cuserr
 func NewTimeoutError(operation string, cause error) error {
 	return cuserr.NewTimeoutError(operation, cause)
-}
-
-// NewRateLimitError creates a rate limit error with limit info using go-cuserr
-func NewRateLimitError(limit int, window string) error {
-	return cuserr.NewRateLimitError(window, window) // cuserr takes limit and window as strings
 }
 
 // NewConflictError creates a conflict error with resource context using go-cuserr
@@ -201,8 +185,6 @@ func ErrorToHTTPStatus(err error) int {
 		return 403
 	case errors.Is(err, ErrTimeout):
 		return 408
-	case errors.Is(err, ErrRateLimit):
-		return 429
 	case errors.Is(err, ErrExternal):
 		return 502
 	case errors.Is(err, ErrInternal):

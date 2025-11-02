@@ -7,7 +7,7 @@ A production-ready, framework-agnostic API key authentication and management mid
 
 ## Version
 
-**v1.0.1** - Patch release with critical data race fixes (production-ready)
+**v2.0.0** - Major release focusing on core API key authentication (production-ready)
 
 ## Features
 
@@ -16,28 +16,41 @@ A production-ready, framework-agnostic API key authentication and management mid
 - 🚀 **Framework Agnostic** - Built-in support for Fiber v2, Gorilla Mux, and stdlib net/http
 - 📦 **Clean Architecture** - Service layer, repository pattern, dependency injection
 - 🔄 **CRUD Operations** - Full API key lifecycle management with REST endpoints
-- ⚡ **Rate Limiting** - Configurable rate limiting (stub implementation included)
 - 🛡️ **Thread Safe** - No race conditions, concurrent request handling
 - 📊 **Structured Logging** - Uber Zap integration for production-grade logging
 - 🔧 **Flexible Storage** - Works with any repository implementing the interface
+- 🔌 **Composable** - Focus on API keys; integrate your choice of rate limiter ([see guide](docs/RATE_LIMITING.md))
 
-### New in v1.0.1
+### New in v2.0.0
+- 🎯 **Focused Architecture** - Removed built-in rate limiting to follow Unix philosophy ("do one thing well")
+- 🧩 **Composable Design** - Users now choose and integrate their preferred rate limiting solution
+- 📚 **Comprehensive Guide** - New `docs/RATE_LIMITING.md` with gorly integration examples
+- 🧹 **Cleaner Codebase** - Removed 1,324 lines of rate limiting code
+- 🔄 **Breaking Change** - Removed `EnableRateLimit` and `RateLimitRules` from configuration
+- ✅ **Migration Support** - See [CHANGELOG.md](CHANGELOG.md) for complete migration guide
+
+<details>
+<summary><b>Previous Versions</b></summary>
+
+### v1.0.1
 - 🐛 **Critical Bug Fixes** - Fixed data races in CreateAPIKey and UpdateAPIKey operations
 - 🧪 **Enhanced Testing** - 69.1% coverage with 145+ test cases including 15 concurrent scenarios
 - ✅ **Production Validated** - 100-iteration stress test with zero race conditions detected
 - 🔒 **Thread Safety** - All concurrent operations properly synchronized
 
-### New in v1.0.0
+### v1.0.0
 - ✅ **Bootstrap Service** - Automatic system admin key creation with security warnings
 - ✅ **Version Management** - Multi-dimensional versioning with go-version
 - ✅ **Zero Code Duplication** - Handler core pattern eliminates framework-specific logic duplication
 - ✅ **Clean Architecture** - Service layer, repository pattern, comprehensive error handling
 - ✅ **go-cuserr Integration** - Standardized error handling and categorization
 
+</details>
+
 ## Installation
 
 ```bash
-go get github.com/vaudience/go-apikeys@v1.0.1
+go get github.com/vaudience/go-apikeys@v2.0.0
 ```
 
 ### Dependencies
@@ -231,14 +244,12 @@ type Config struct {
 
     // Features
     EnableCRUD       bool   // Enable CRUD REST endpoints (default: false)
-    EnableRateLimit  bool   // Enable rate limiting (default: false)
     EnableBootstrap  bool   // Auto-create system admin key (default: false)
 
     // Optional
     Framework                      HTTPFramework  // Framework adapter
     IgnoreApiKeyForRoutePatterns  []string       // Skip auth for these routes
     BootstrapConfig               *BootstrapConfig
-    RateLimitRules                []RateLimitRule
 }
 ```
 
@@ -300,22 +311,11 @@ BootstrapConfig: &apikeys.BootstrapConfig{
 
 ### Rate Limiting
 
-```go
-config := &apikeys.Config{
-    EnableRateLimit: true,
-    RateLimitRules: []apikeys.RateLimitRule{
-        {
-            Path:     "/api/.*",
-            Timespan: 1 * time.Minute,
-            Limit:    100,
-            ApplyTo:  []apikeys.RateLimitRuleTarget{apikeys.RateLimitRuleTargetAPIKey},
-        },
-    },
-    // ... other config
-}
-```
+go-apikeys v2.0.0+ focuses solely on API key authentication. For rate limiting, integrate your choice of rate limiting library.
 
-**Note**: v1.0.0 includes a stub rate limiter that always allows requests. Use for development/testing. Production rate limiting requires an external implementation.
+**Recommended**: [gorly](https://github.com/itsatony/gorly) - production-grade rate limiting with tier support
+
+See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md) for integration guide and examples.
 
 ## API Key Management
 
@@ -504,9 +504,54 @@ go tool cover -html=coverage.out
 - **Repository Pattern**: Storage abstraction for flexibility
 - **Adapter Pattern**: Multiple framework support without duplication
 - **Singleton Pattern**: Version management with thread-safe initialization
-- **Strategy Pattern**: Rate limiting interface for swappable implementations
 
-## Migration Guide: v0.x → v1.0.0
+## Migration Guides
+
+### v1.x → v2.0.0
+
+#### Breaking Changes
+
+**Removed Built-in Rate Limiting:**
+- Removed `EnableRateLimit` config field
+- Removed `RateLimitRules` config field
+- Removed all rate limiting functionality (1,324 lines)
+
+**Rationale:** Following Unix philosophy, go-apikeys now focuses exclusively on API key authentication. Users integrate their preferred rate limiting solution.
+
+#### Migration Steps
+
+**If you were NOT using rate limiting:**
+- No changes required! Update your dependency:
+  ```bash
+  go get -u github.com/vaudience/go-apikeys@v2.0.0
+  ```
+
+**If you were using rate limiting:**
+1. Remove `EnableRateLimit` and `RateLimitRules` from your config
+2. Choose a rate limiting library (we recommend [gorly](https://github.com/itsatony/gorly))
+3. Integrate rate limiting middleware after go-apikeys middleware
+4. See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md) for complete integration examples
+
+**Example Migration:**
+```go
+// OLD (v1.x)
+config := &apikeys.Config{
+    EnableRateLimit: true,
+    RateLimitRules: []apikeys.RateLimitRule{...},
+}
+
+// NEW (v2.0.0) - No rate limiting in config
+config := &apikeys.Config{
+    Repository: repo,
+    Logger:     logger,
+    Framework:  apikeys.NewStdlibFramework(),
+}
+
+// Integrate gorly or your preferred rate limiter
+// See docs/RATE_LIMITING.md for complete examples
+```
+
+### v0.x → v1.0.0
 
 ### Breaking Changes
 
@@ -526,12 +571,7 @@ go tool cover -html=coverage.out
    - Old: Check error strings
    - New: Use error type checking (`err == apikeys.ErrAPIKeyNotFound`)
 
-4. **Rate Limiting**
-   - Old: Production-ready rate limiter
-   - New: Stub implementation (always allows)
-   - Migration: Set `EnableRateLimit: false` or implement `RateLimiterInterface`
-
-5. **Bootstrap Replaces SystemAPIKey**
+4. **Bootstrap Replaces SystemAPIKey**
    ```go
    // Old (v0.x)
    config := &apikeys.Config{

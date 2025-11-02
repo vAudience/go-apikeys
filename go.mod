@@ -7,6 +7,8 @@ toolchain go1.24.9
 require (
 	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/gorilla/mux v1.8.1
+	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/itsatony/go-cuserr v0.3.0
 	github.com/itsatony/go-datarepository v0.5.0
 	github.com/itsatony/go-version v0.0.0-20251101145409-a672e7608678
 	github.com/matoous/go-nanoid/v2 v2.1.0
@@ -25,8 +27,6 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/itsatony/go-cuserr v0.3.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

@@ -7,22 +7,21 @@ package apikeys
 const (
 	// Package metadata
 	PACKAGE_NAME    = "go-apikeys"
-	PACKAGE_VERSION = "1.0.0"
+	PACKAGE_VERSION = "2.0.0"
 
 	// Default configuration values
 	DEFAULT_HEADER_KEY         = "X-API-Key"
 	DEFAULT_APIKEY_PREFIX      = "gak_" // go-apikeys prefix
 	DEFAULT_APIKEY_LENGTH      = 32     // Random string length (total with prefix: 36 chars)
 	DEFAULT_APIKEY_HINT_LENGTH = 3      // First/last N characters for hint
-	DEFAULT_RATE_LIMIT_ENABLED = false
 	DEFAULT_CRUD_ENABLED       = false
 	DEFAULT_BOOTSTRAP_ENABLED  = false
 
 	// Cache configuration defaults
-	DEFAULT_CACHE_ENABLED = true          // Cache enabled by default for performance
-	DEFAULT_CACHE_SIZE    = 1000          // Number of API keys to cache
-	DEFAULT_CACHE_TTL     = 300           // TTL in seconds (5 minutes)
-	CACHE_DISABLED_SIZE   = 0             // Set cache size to 0 to disable
+	DEFAULT_CACHE_ENABLED = true // Cache enabled by default for performance
+	DEFAULT_CACHE_SIZE    = 1000 // Number of API keys to cache
+	DEFAULT_CACHE_TTL     = 300  // TTL in seconds (5 minutes)
+	CACHE_DISABLED_SIZE   = 0    // Set cache size to 0 to disable
 
 	// HTTP headers
 	HEADER_API_KEY       = "X-API-Key"
@@ -49,11 +48,6 @@ const (
 	REPO_KEY_PREFIX    = "apikeys"
 	REPO_KEY_SEPARATOR = ":"
 	REPO_KEY_APIKEY    = "key"
-	REPO_KEY_RATELIMIT = "ratelimit"
-
-	// Rate limiting
-	RATE_LIMIT_KEY_PREFIX    = "apikeys:ratelimit"
-	RATE_LIMIT_KEY_SEPARATOR = ":"
 
 	// HTTP status messages
 	HTTP_MSG_OK                = "OK"
@@ -75,8 +69,6 @@ const (
 	ERROR_FAILED_TO_CREATE_API_KEY        = "failed to create API key"
 	ERROR_FAILED_TO_UPDATE_API_KEY        = "failed to update API key"
 	ERROR_FAILED_TO_DELETE_API_KEY        = "failed to delete API key"
-	ERROR_FAILED_TO_CHECK_RATE_LIMIT      = "failed to check rate limit"
-	ERROR_RATE_LIMIT_EXCEEDED             = "rate limit exceeded"
 	ERROR_UNAUTHORIZED_ACCESS             = "unauthorized access"
 	ERROR_FORBIDDEN_OPERATION             = "forbidden operation"
 	ERROR_INVALID_INPUT                   = "invalid input"
@@ -105,37 +97,34 @@ const (
 	LOG_LEVEL_FATAL = "FATAL"
 
 	// Log message templates (use with fmt.Sprintf)
-	LOG_MSG_MANAGER_CREATED       = "[%s.%s] API key manager created"
-	LOG_MSG_APIKEY_CREATED        = "[%s.%s] API key created for user_id=%s org_id=%s"
-	LOG_MSG_APIKEY_RETRIEVED      = "[%s.%s] API key retrieved: hash=%s"
-	LOG_MSG_APIKEY_UPDATED        = "[%s.%s] API key updated: hash=%s"
-	LOG_MSG_APIKEY_DELETED        = "[%s.%s] API key deleted: hash=%s"
-	LOG_MSG_APIKEY_VALIDATED      = "[%s.%s] API key validated: hash=%s user_id=%s"
-	LOG_MSG_RATE_LIMIT_CHECKED    = "[%s.%s] Rate limit checked: identifier=%s result=%t"
-	LOG_MSG_RATE_LIMIT_EXCEEDED   = "[%s.%s] Rate limit exceeded: identifier=%s limit=%d"
-	LOG_MSG_BOOTSTRAP_CREATED     = "[%s.%s] Bootstrap API key created: user_id=%s"
-	LOG_MSG_BOOTSTRAP_WARNING     = "BOOTSTRAP KEY CREATED - STORE SECURELY: %s"
-	LOG_MSG_MIDDLEWARE_SKIP       = "[%s.%s] Skipping API key validation for route: %s"
-	LOG_MSG_CONTEXT_NOT_FOUND     = "[%s.%s] API key info not found in context"
-	LOG_MSG_STUB_RATE_LIMITER     = "[%s.%s] Using stub rate limiter - always allows requests"
-	LOG_MSG_INVALID_JSON          = "Invalid JSON in request body"
-	LOG_MSG_CREATE_APIKEY_FAILED  = "Failed to create API key"
-	LOG_MSG_SEARCH_APIKEYS_FAILED = "Failed to search API keys"
-	LOG_MSG_GET_APIKEY_FAILED     = "Failed to retrieve API key"
-	LOG_MSG_UPDATE_APIKEY_FAILED      = "Failed to update API key"
-	LOG_MSG_DELETE_APIKEY_FAILED      = "Failed to delete API key"
-	LOG_MSG_UNSUPPORTED_ROUTER        = "[GO-APIKEYS.RegisterCRUDRoutes] Unsupported router type"
-	LOG_MSG_CRUD_ROUTES_REGISTERED    = "[GO-APIKEYS.RegisterCRUDRoutes] CRUD routes registered"
+	LOG_MSG_MANAGER_CREATED        = "[%s.%s] API key manager created"
+	LOG_MSG_APIKEY_CREATED         = "[%s.%s] API key created for user_id=%s org_id=%s"
+	LOG_MSG_APIKEY_RETRIEVED       = "[%s.%s] API key retrieved: hash=%s"
+	LOG_MSG_APIKEY_UPDATED         = "[%s.%s] API key updated: hash=%s"
+	LOG_MSG_APIKEY_DELETED         = "[%s.%s] API key deleted: hash=%s"
+	LOG_MSG_APIKEY_VALIDATED       = "[%s.%s] API key validated: hash=%s user_id=%s"
+	LOG_MSG_BOOTSTRAP_CREATED      = "[%s.%s] Bootstrap API key created: user_id=%s"
+	LOG_MSG_BOOTSTRAP_WARNING      = "BOOTSTRAP KEY CREATED - STORE SECURELY: %s"
+	LOG_MSG_MIDDLEWARE_SKIP        = "[%s.%s] Skipping API key validation for route: %s"
+	LOG_MSG_CONTEXT_NOT_FOUND      = "[%s.%s] API key info not found in context"
+	LOG_MSG_INVALID_JSON           = "Invalid JSON in request body"
+	LOG_MSG_CREATE_APIKEY_FAILED   = "Failed to create API key"
+	LOG_MSG_SEARCH_APIKEYS_FAILED  = "Failed to search API keys"
+	LOG_MSG_GET_APIKEY_FAILED      = "Failed to retrieve API key"
+	LOG_MSG_UPDATE_APIKEY_FAILED   = "Failed to update API key"
+	LOG_MSG_DELETE_APIKEY_FAILED   = "Failed to delete API key"
+	LOG_MSG_UNSUPPORTED_ROUTER     = "[GO-APIKEYS.RegisterCRUDRoutes] Unsupported router type"
+	LOG_MSG_CRUD_ROUTES_REGISTERED = "[GO-APIKEYS.RegisterCRUDRoutes] CRUD routes registered"
 
 	// Log field names (for structured logging)
-	LOG_FIELD_USER_ID        = "user_id"
-	LOG_FIELD_ORG_ID         = "org_id"
-	LOG_FIELD_HASH           = "hash"
-	LOG_FIELD_HINT           = "hint"
-	LOG_FIELD_EMAIL          = "email"
-	LOG_FIELD_NAME           = "name"
-	LOG_FIELD_PATH           = "path"
-	LOG_FIELD_METHOD         = "method"
+	LOG_FIELD_USER_ID           = "user_id"
+	LOG_FIELD_ORG_ID            = "org_id"
+	LOG_FIELD_HASH              = "hash"
+	LOG_FIELD_HINT              = "hint"
+	LOG_FIELD_EMAIL             = "email"
+	LOG_FIELD_NAME              = "name"
+	LOG_FIELD_PATH              = "path"
+	LOG_FIELD_METHOD            = "method"
 	LOG_FIELD_STATUS_CODE       = "status_code"
 	LOG_FIELD_ERROR             = "error"
 	LOG_FIELD_REQUIRED_FIELD    = "required_field"
@@ -144,8 +133,7 @@ const (
 	LOG_FIELD_PREFIX            = "prefix"
 	LOG_FIELD_KEY_LENGTH        = "key_length"
 	LOG_FIELD_CRUD_ENABLED      = "crud_enabled"
-	LOG_FIELD_RATE_LIMIT_ENABLED = "rate_limit_enabled"
-	LOG_FIELD_BOOTSTRAP_ENABLED  = "bootstrap_enabled"
+	LOG_FIELD_BOOTSTRAP_ENABLED = "bootstrap_enabled"
 
 	// Response JSON keys
 	RESPONSE_KEY_IS_SYSTEM_ADMIN = "isSystemAdmin"
@@ -157,7 +145,6 @@ const (
 	CLASS_APIKEY_MANAGER    = "APIKeyManager"
 	CLASS_APIKEY_SERVICE    = "APIKeyService"
 	CLASS_BOOTSTRAP_SERVICE = "BootstrapService"
-	CLASS_RATE_LIMITER      = "RateLimiter"
 	CLASS_MIDDLEWARE        = "Middleware"
 	CLASS_CRUD_HANDLER      = "CRUDHandler"
 	CLASS_REPOSITORY        = "Repository"
@@ -210,10 +197,6 @@ const (
 	MIN_APIKEY_LENGTH  = 10    // Minimum length for API key
 	MAX_METADATA_SIZE  = 10240 // 10KB max metadata JSON size
 
-	// Rate limiting defaults
-	DEFAULT_RATE_LIMIT_WINDOW = 60  // seconds
-	DEFAULT_RATE_LIMIT_MAX    = 100 // requests per window
-
 	// Hash algorithm
 	HASH_ALGORITHM = "SHA3-512"
 	HASH_ENCODING  = "hex"
@@ -228,10 +211,9 @@ const (
 	ENV_BOOTSTRAP_ENABLED = "APIKEYS_BOOTSTRAP_ENABLED"
 
 	// Feature flags
-	FEATURE_CRUD       = "crud"
-	FEATURE_RATE_LIMIT = "rate_limit"
-	FEATURE_BOOTSTRAP  = "bootstrap"
-	FEATURE_EVENTS     = "events"
+	FEATURE_CRUD      = "crud"
+	FEATURE_BOOTSTRAP = "bootstrap"
+	FEATURE_EVENTS    = "events"
 
 	// Framework identifiers
 	FRAMEWORK_FIBER  = "fiber"
@@ -254,12 +236,6 @@ const (
 	JSON_FIELD_CODE         = "code"
 	JSON_FIELD_DETAILS      = "details"
 
-	// Rate limit rule targets
-	RATE_LIMIT_TARGET_APIKEY = "apikey"
-	RATE_LIMIT_TARGET_USER   = "user"
-	RATE_LIMIT_TARGET_ORG    = "org"
-	RATE_LIMIT_TARGET_IP     = "ip"
-
 	// Operation identifiers (for tracing/logging)
 	OPERATION_CREATE_APIKEY  = "create_apikey"
 	OPERATION_GET_APIKEY     = "get_apikey"
@@ -267,23 +243,12 @@ const (
 	OPERATION_DELETE_APIKEY  = "delete_apikey"
 	OPERATION_SEARCH_APIKEYS = "search_apikeys"
 	OPERATION_VALIDATE       = "validate_apikey"
-	OPERATION_RATE_LIMIT     = "rate_limit_check"
 	OPERATION_BOOTSTRAP      = "bootstrap"
 
 	// Test/development constants
 	TEST_APIKEY_PREFIX  = "test_"
 	TEST_USER_ID_PREFIX = "usr_test_"
 	TEST_ORG_ID_PREFIX  = "org_test_"
-)
-
-// RateLimitRuleTarget represents where rate limiting is applied
-type RateLimitRuleTarget string
-
-const (
-	RateLimitRuleTargetAPIKey RateLimitRuleTarget = RATE_LIMIT_TARGET_APIKEY
-	RateLimitRuleTargetUserID RateLimitRuleTarget = RATE_LIMIT_TARGET_USER
-	RateLimitRuleTargetOrgID  RateLimitRuleTarget = RATE_LIMIT_TARGET_ORG
-	RateLimitRuleTargetIP     RateLimitRuleTarget = RATE_LIMIT_TARGET_IP
 )
 
 // contextKey is an unexported type for context keys to prevent collisions.

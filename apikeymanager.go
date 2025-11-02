@@ -17,7 +17,6 @@ type APIKeyManager struct {
 	config         *Config
 	logger         *zap.Logger
 	service        *APIKeyService
-	limiter        RateLimiterInterface
 	framework      HTTPFramework
 	ignorePatterns []*regexp.Regexp // Pre-compiled regex patterns for route ignoring
 }
@@ -70,13 +69,6 @@ func New(config *Config) (*APIKeyManager, error) {
 		return nil, err
 	}
 
-	// Create stub rate limiter if enabled
-	// TODO: Replace with production rate limiter when external package is ready
-	var limiter RateLimiterInterface
-	if config.EnableRateLimit {
-		limiter = NewStubRateLimiter(config.Logger)
-	}
-
 	// Pre-compile regex patterns for route ignoring (CRITICAL: must be done once, not on every request)
 	ignorePatterns := make([]*regexp.Regexp, 0, len(config.IgnoreApiKeyForRoutePatterns))
 	for i, pattern := range config.IgnoreApiKeyForRoutePatterns {
@@ -92,7 +84,6 @@ func New(config *Config) (*APIKeyManager, error) {
 		config:         config,
 		logger:         config.Logger.Named(CLASS_APIKEY_MANAGER),
 		service:        service,
-		limiter:        limiter,
 		framework:      config.Framework,
 		ignorePatterns: ignorePatterns,
 	}
@@ -105,7 +96,6 @@ func New(config *Config) (*APIKeyManager, error) {
 		zap.String(LOG_FIELD_PREFIX, config.ApiKeyPrefix),
 		zap.Int(LOG_FIELD_KEY_LENGTH, config.ApiKeyLength),
 		zap.Bool(LOG_FIELD_CRUD_ENABLED, config.EnableCRUD),
-		zap.Bool(LOG_FIELD_RATE_LIMIT_ENABLED, config.EnableRateLimit),
 		zap.Bool(LOG_FIELD_BOOTSTRAP_ENABLED, config.EnableBootstrap))
 
 	// Run bootstrap if enabled
@@ -201,8 +191,9 @@ func (m *APIKeyManager) Get(c interface{}) *APIKeyInfo {
 // This is the recommended way to use the middleware with Fiber v2.
 //
 // Usage:
-//   app := fiber.New()
-//   app.Use(manager.FiberMiddleware())
+//
+//	app := fiber.New()
+//	app.Use(manager.FiberMiddleware())
 func (m *APIKeyManager) FiberMiddleware() fiber.Handler {
 	if _, ok := m.framework.(*FiberFramework); !ok {
 		m.logger.Warn("FiberMiddleware called but framework is not Fiber")
@@ -214,14 +205,15 @@ func (m *APIKeyManager) FiberMiddleware() fiber.Handler {
 // This works with net/http and Gorilla Mux.
 //
 // Usage:
-//   // With net/http:
-//   http.Handle("/", manager.StdlibMiddleware()(myHandler))
 //
-//   // With Gorilla Mux:
-//   r := mux.NewRouter()
-//   r.Use(mux.MiddlewareFunc(func(next http.Handler) http.Handler {
-//       return manager.StdlibMiddleware()(next)
-//   }))
+//	// With net/http:
+//	http.Handle("/", manager.StdlibMiddleware()(myHandler))
+//
+//	// With Gorilla Mux:
+//	r := mux.NewRouter()
+//	r.Use(mux.MiddlewareFunc(func(next http.Handler) http.Handler {
+//	    return manager.StdlibMiddleware()(next)
+//	}))
 func (m *APIKeyManager) StdlibMiddleware() func(http.Handler) http.Handler {
 	return m.standardMiddleware()
 }
@@ -232,11 +224,12 @@ func (m *APIKeyManager) StdlibMiddleware() func(http.Handler) http.Handler {
 // This method returns interface{} which requires type assertion and is error-prone.
 //
 // Migration path:
-//   // Old (requires type assertion):
-//   app.Use(manager.Middleware().(fiber.Handler))
 //
-//   // New (type-safe):
-//   app.Use(manager.FiberMiddleware())
+//	// Old (requires type assertion):
+//	app.Use(manager.Middleware().(fiber.Handler))
+//
+//	// New (type-safe):
+//	app.Use(manager.FiberMiddleware())
 func (m *APIKeyManager) Middleware() interface{} {
 	switch m.framework.(type) {
 	case *FiberFramework:
@@ -262,11 +255,12 @@ func (m *APIKeyManager) GetAPIKeyInfo(ctx context.Context, apiKeyOrHash string) 
 // compatibility but will be removed in v2.0.0.
 //
 // Migration path:
-//   // Old (deprecated):
-//   err := manager.SetAPIKeyInfo(ctx, apiKeyInfo)
 //
-//   // New (recommended):
-//   err := manager.UpdateAPIKey(ctx, apiKeyInfo)
+//	// Old (deprecated):
+//	err := manager.SetAPIKeyInfo(ctx, apiKeyInfo)
+//
+//	// New (recommended):
+//	err := manager.UpdateAPIKey(ctx, apiKeyInfo)
 func (m *APIKeyManager) SetAPIKeyInfo(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
 	return m.service.UpdateAPIKey(ctx, apiKeyInfo)
 }

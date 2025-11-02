@@ -4,7 +4,7 @@ manifest_version: "1.0"
 # Project version (semantic versioning)
 project:
   name: "go-apikeys"
-  version: "1.0.0"  # Fresh start - pre-release breaking changes
+  version: "2.0.0"  # Major release - rate limiting removed, focused architecture
 
 # Database schema versions (migration numbers)
 schemas:
@@ -12,7 +12,7 @@ schemas:
 
 # API versions (semantic versioning)
 apis:
-  rest_v1: "1.0.0"  # CRUD REST API
+  rest_v1: "2.0.0"  # CRUD REST API - rate limiting removed
 
 # Component versions (internal dependencies)
 components:
@@ -26,4 +26,4 @@ custom:
   environment: "development"
   min_go_version: "1.24"
   framework_support: ["fiber", "mux", "stdlib"]
-  rate_limiter_mode: "stub"  # Using stub until external package ready
+  rate_limiting: "external"  # Users integrate their own rate limiting solution

@@ -44,15 +44,6 @@ type Config struct {
 	// Default: false
 	EnableCRUD bool
 
-	// EnableRateLimit enables rate limiting based on RateLimitRules.
-	// Default: false
-	EnableRateLimit bool
-
-	// RateLimitRules defines the rate limiting rules when EnableRateLimit is true.
-	// Each rule specifies path patterns, limits, and targets (API key, user, org, IP).
-	// Default: empty
-	RateLimitRules []RateLimitRule
-
 	// Logger is a zap logger for structured logging.
 	// If nil, a default logger will be created.
 	// Default: zap.NewProduction()
@@ -157,12 +148,10 @@ func NewConfig() *Config {
 		ApiKeyLength:                 DEFAULT_APIKEY_LENGTH,
 		IgnoreApiKeyForRoutePatterns: []string{},
 		EnableCRUD:                   DEFAULT_CRUD_ENABLED,
-		EnableRateLimit:              DEFAULT_RATE_LIMIT_ENABLED,
 		EnableCache:                  DEFAULT_CACHE_ENABLED,
 		CacheSize:                    DEFAULT_CACHE_SIZE,
 		CacheTTL:                     DEFAULT_CACHE_TTL,
 		EnableBootstrap:              DEFAULT_BOOTSTRAP_ENABLED,
-		RateLimitRules:               []RateLimitRule{},
 	}
 }
 
@@ -199,9 +188,6 @@ func (c *Config) ApplyDefaults() {
 	if c.IgnoreApiKeyForRoutePatterns == nil {
 		c.IgnoreApiKeyForRoutePatterns = []string{}
 	}
-	if c.RateLimitRules == nil {
-		c.RateLimitRules = []RateLimitRule{}
-	}
 }
 
 // Clone creates a deep copy of the configuration.
@@ -212,9 +198,6 @@ func (c *Config) Clone() *Config {
 	// Deep copy slices
 	clone.IgnoreApiKeyForRoutePatterns = make([]string, len(c.IgnoreApiKeyForRoutePatterns))
 	copy(clone.IgnoreApiKeyForRoutePatterns, c.IgnoreApiKeyForRoutePatterns)
-
-	clone.RateLimitRules = make([]RateLimitRule, len(c.RateLimitRules))
-	copy(clone.RateLimitRules, c.RateLimitRules)
 
 	// Deep copy bootstrap config if present
 	if c.BootstrapConfig != nil {

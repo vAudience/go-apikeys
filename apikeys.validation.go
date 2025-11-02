@@ -185,19 +185,6 @@ func ValidateConfig(config *Config) error {
 		errors.Add("api_key_length", "must be at most 100 (recommended: 16-32)")
 	}
 
-	// Validate RateLimitRules if rate limiting is enabled
-	if config.EnableRateLimit {
-		if len(config.RateLimitRules) == 0 {
-			errors.Add("rate_limit_rules", "must have at least one rule when rate limiting is enabled")
-		} else {
-			for i, rule := range config.RateLimitRules {
-				if err := ValidateRateLimitRule(&rule); err != nil {
-					errors.Add(fmt.Sprintf("rate_limit_rules[%d]", i), err.Error())
-				}
-			}
-		}
-	}
-
 	// Validate BootstrapConfig if bootstrap is enabled
 	if config.EnableBootstrap {
 		if config.BootstrapConfig == nil {
@@ -219,61 +206,6 @@ func ValidateConfig(config *Config) error {
 	}
 
 	return errors.ToError()
-}
-
-// ValidateRateLimitRule validates a RateLimitRule.
-// Returns nil if valid, error if invalid.
-func ValidateRateLimitRule(rule *RateLimitRule) error {
-	if rule == nil {
-		return NewValidationError("rule", "cannot be nil")
-	}
-
-	errors := &ValidationErrors{}
-
-	// Validate Path (required, must be valid regex)
-	if rule.Path == "" {
-		errors.Add("path", "is required")
-	} else {
-		// Try to compile as regex
-		_, err := regexp.Compile(rule.Path)
-		if err != nil {
-			errors.Add("path", fmt.Sprintf("invalid regex: %v", err))
-		}
-	}
-
-	// Validate Timespan (must be positive)
-	if rule.Timespan <= 0 {
-		errors.Add("timespan", "must be positive")
-	}
-
-	// Validate Limit (must be positive)
-	if rule.Limit <= 0 {
-		errors.Add("limit", "must be positive")
-	}
-
-	// Validate ApplyTo (must have at least one target)
-	if len(rule.ApplyTo) == 0 {
-		errors.Add("apply_to", "must have at least one target")
-	} else {
-		// Validate each target
-		for i, target := range rule.ApplyTo {
-			if !isValidRateLimitTarget(target) {
-				errors.Add(fmt.Sprintf("apply_to[%d]", i), fmt.Sprintf("invalid target: %s", target))
-			}
-		}
-	}
-
-	return errors.ToError()
-}
-
-// isValidRateLimitTarget checks if a rate limit target is valid.
-func isValidRateLimitTarget(target RateLimitRuleTarget) bool {
-	switch target {
-	case RateLimitRuleTargetAPIKey, RateLimitRuleTargetUserID, RateLimitRuleTargetOrgID, RateLimitRuleTargetIP:
-		return true
-	default:
-		return false
-	}
 }
 
 // ValidateAPIKey validates an API key string format.

@@ -28,16 +28,6 @@ func (m *APIKeyManager) fiberMiddleware() fiber.Handler {
 			return c.Status(fiber.StatusUnauthorized).SendString(ErrUnauthorized.Error())
 		}
 
-		if m.config.EnableRateLimit {
-			allowed, err := m.limiter.Allow(c.Context(), m.framework, c)
-			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).SendString(ErrFailedToCheckRateLimit.Error())
-			}
-			if !allowed {
-				return c.Status(fiber.StatusTooManyRequests).SendString(ErrRateLimitExceeded.Error())
-			}
-		}
-
 		c.Locals(LOCALS_KEY_APIKEYS, apiKeyInfo)
 		return c.Next()
 	}
@@ -65,18 +55,6 @@ func (m *APIKeyManager) standardMiddleware() func(http.Handler) http.Handler {
 				// to prevent information leakage (timing attacks, key enumeration)
 				http.Error(w, ErrUnauthorized.Error(), http.StatusUnauthorized)
 				return
-			}
-
-			if m.config.EnableRateLimit {
-				allowed, err := m.limiter.Allow(r.Context(), m.framework, r)
-				if err != nil {
-					http.Error(w, ErrFailedToCheckRateLimit.Error(), http.StatusInternalServerError)
-					return
-				}
-				if !allowed {
-					http.Error(w, ErrRateLimitExceeded.Error(), http.StatusTooManyRequests)
-					return
-				}
 			}
 
 			// Use typed context key for stdlib to prevent collisions

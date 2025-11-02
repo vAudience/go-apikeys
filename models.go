@@ -1,11 +1,6 @@
 // Package apikeys provides API key authentication and management middleware for Go applications.
 package apikeys
 
-import (
-	"regexp"
-	"time"
-)
-
 // APIKeyInfo represents the complete information about an API key.
 // This structure is used for both storage and API responses.
 type APIKeyInfo struct {
@@ -57,22 +52,4 @@ func (apikey *APIKeyInfo) Filter(includeSource bool, includeHash bool) *APIKeyIn
 // This is safe to log and display.
 func (a APIKeyInfo) String() string {
 	return a.APIKeyHash
-}
-
-// RateLimitRule defines a rate limiting rule for API endpoints.
-type RateLimitRule struct {
-	// Path is a regex pattern matching request paths (e.g., "/api/.*")
-	Path string
-
-	// Timespan is the time window for rate limiting (e.g., 1 minute)
-	Timespan time.Duration
-
-	// Limit is the maximum number of requests allowed in the timespan
-	Limit int
-
-	// ApplyTo specifies what to rate limit (API key, user, org, IP)
-	ApplyTo []RateLimitRuleTarget
-
-	// pathRegex is the compiled regex pattern (internal use)
-	pathRegex *regexp.Regexp
 }
