@@ -4,7 +4,7 @@ manifest_version: "1.0"
 # Project version (semantic versioning)
 project:
   name: "go-apikeys"
-  version: "2.0.0"  # Major release - rate limiting removed, focused architecture
+  version: "2.0.1"  # Security patch - updated golang.org/x/crypto to v0.43.0
 
 # Database schema versions (migration numbers)
 schemas:
@@ -12,7 +12,7 @@ schemas:
 
 # API versions (semantic versioning)
 apis:
-  rest_v1: "2.0.0"  # CRUD REST API - rate limiting removed
+  rest_v1: "2.0.1"  # CRUD REST API - security update
 
 # Component versions (internal dependencies)
 components:

@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2025-11-03
+
+### Patch Release - Security Update
+
+This patch release resolves critical security vulnerabilities in the golang.org/x/crypto dependency.
+
+### Fixed
+
+#### Security Vulnerabilities
+- **CRITICAL**: Updated golang.org/x/crypto from v0.28.0 to v0.43.0
+- **Resolved 6 Dependabot alerts**:
+  - 3 Critical: Misuse of ServerConfig.PublicKeyCallback may cause authorization bypass
+  - 3 High: Vulnerable to Denial of Service (DoS) via Slow or Incomplete Key Exchange
+- **Updated**: golang.org/x/sys from v0.28.0 to v0.37.0 (dependency)
+
+**Locations updated:**
+- Root `go.mod`
+- `examples/fiber/go.mod`
+- `examples/stdlib/go.mod`
+
+### Notes
+
+**Important:** v2.0.0 was initially published but cached by the Go proxy before security fixes were applied. Users should use v2.0.1 instead.
+
+**Installation:**
+```bash
+go get github.com/vaudience/go-apikeys/v2@v2.0.1
+```
+
+### Testing
+
+- ✅ All 130+ tests passing with race detector (7.254s)
+- ✅ Zero security vulnerabilities (govulncheck)
+- ✅ Clean build with zero vet issues
+
+---
+
 ## [2.0.0] - 2025-11-02
 
 ### Major Release - Focused Architecture

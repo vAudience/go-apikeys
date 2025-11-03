@@ -7,7 +7,7 @@ package apikeys
 const (
 	// Package metadata
 	PACKAGE_NAME    = "go-apikeys"
-	PACKAGE_VERSION = "2.0.0"
+	PACKAGE_VERSION = "2.0.1"
 
 	// Default configuration values
 	DEFAULT_HEADER_KEY         = "X-API-Key"
