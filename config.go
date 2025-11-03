@@ -76,6 +76,12 @@ type Config struct {
 	// BootstrapConfig contains bootstrap-specific configuration.
 	// Only used when EnableBootstrap is true.
 	BootstrapConfig *BootstrapConfig
+
+	// ObservabilityConfig contains configuration for observability features
+	// including metrics, audit logging, and tracing.
+	// If nil, all observability features are disabled (zero overhead).
+	// Default: nil (disabled)
+	ObservabilityConfig *ObservabilityConfig
 }
 
 // BootstrapConfig contains configuration for bootstrap API key creation.
@@ -210,6 +216,15 @@ func (c *Config) Clone() *Config {
 			bootstrapClone.Metadata[k] = v
 		}
 		clone.BootstrapConfig = &bootstrapClone
+	}
+
+	// Deep copy observability config if present
+	if c.ObservabilityConfig != nil {
+		observabilityClone := *c.ObservabilityConfig
+		// Note: MetricsProvider, AuditProvider, and TracingProvider are interfaces
+		// and will be shallow copied (pointing to same instances).
+		// This is intentional as these are typically singleton instances.
+		clone.ObservabilityConfig = &observabilityClone
 	}
 
 	return &clone

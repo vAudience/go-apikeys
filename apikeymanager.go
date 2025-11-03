@@ -19,6 +19,7 @@ type APIKeyManager struct {
 	service        *APIKeyService
 	framework      HTTPFramework
 	ignorePatterns []*regexp.Regexp // Pre-compiled regex patterns for route ignoring
+	observability  *Observability    // Observability features (metrics, audit, tracing)
 }
 
 // compileIgnorePatternsIfNeeded ensures patterns are compiled, supporting config changes after initialization
@@ -69,6 +70,9 @@ func New(config *Config) (*APIKeyManager, error) {
 		return nil, err
 	}
 
+	// Initialize observability features
+	observability := initializeObservability(config, config.Logger)
+
 	// Pre-compile regex patterns for route ignoring (CRITICAL: must be done once, not on every request)
 	ignorePatterns := make([]*regexp.Regexp, 0, len(config.IgnoreApiKeyForRoutePatterns))
 	for i, pattern := range config.IgnoreApiKeyForRoutePatterns {
@@ -86,7 +90,11 @@ func New(config *Config) (*APIKeyManager, error) {
 		service:        service,
 		framework:      config.Framework,
 		ignorePatterns: ignorePatterns,
+		observability:  observability,
 	}
+
+	// Inject observability into service
+	service.SetObservability(observability)
 
 	// Log version information
 	LogVersionInfo(manager.logger)
@@ -278,4 +286,67 @@ func (m *APIKeyManager) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 // SearchAPIKeys searches for API keys with pagination. Delegates to the service layer.
 func (m *APIKeyManager) SearchAPIKeys(ctx context.Context, offset, limit int) ([]*APIKeyInfo, int, error) {
 	return m.service.SearchAPIKeys(ctx, nil, offset, limit)
+}
+
+// initializeObservability creates and configures the observability instance based on the config.
+// If observability is disabled (config is nil), returns an instance with no-op providers.
+func initializeObservability(config *Config, logger *zap.Logger) *Observability {
+	// If observability config is nil, use no-op providers (zero overhead)
+	if config.ObservabilityConfig == nil {
+		return NewObservability(nil, nil, nil)
+	}
+
+	obsConfig := config.ObservabilityConfig
+
+	// Validate observability config
+	if err := obsConfig.Validate(); err != nil {
+		logger.Error("Invalid observability config, using no-op providers",
+			zap.Error(err))
+		return NewObservability(nil, nil, nil)
+	}
+
+	var metricsProvider MetricsProvider
+	var auditProvider AuditProvider
+	var tracingProvider TracingProvider
+
+	// Initialize metrics provider
+	if obsConfig.EnableMetrics {
+		if obsConfig.MetricsProvider != nil {
+			metricsProvider = obsConfig.MetricsProvider
+			logger.Info("Observability: Metrics enabled with custom provider")
+		} else {
+			// Use default Prometheus provider
+			metricsProvider = NewPrometheusMetrics(obsConfig.MetricsNamespace, nil)
+			logger.Info("Observability: Metrics enabled with Prometheus",
+				zap.String("namespace", obsConfig.MetricsNamespace))
+		}
+	}
+
+	// Initialize audit provider
+	if obsConfig.EnableAudit {
+		if obsConfig.AuditProvider != nil {
+			auditProvider = obsConfig.AuditProvider
+			logger.Info("Observability: Audit logging enabled with custom provider")
+		} else {
+			// Use default structured logger
+			auditProvider = NewStructuredAuditLogger(logger, obsConfig.AuditSampleRate, obsConfig.ShouldAuditSuccessEvents())
+			logger.Info("Observability: Audit logging enabled with structured logger",
+				zap.Float64("sample_rate", obsConfig.AuditSampleRate),
+				zap.Bool("audit_success", obsConfig.ShouldAuditSuccessEvents()),
+				zap.String("compliance_mode", obsConfig.ComplianceMode))
+		}
+	}
+
+	// Initialize tracing provider
+	if obsConfig.EnableTracing {
+		if obsConfig.TracingProvider != nil {
+			tracingProvider = obsConfig.TracingProvider
+			logger.Info("Observability: Tracing enabled with custom provider")
+		} else {
+			// No default tracing provider - user must supply one
+			logger.Warn("Observability: Tracing enabled but no provider specified, using no-op")
+		}
+	}
+
+	return NewObservability(metricsProvider, auditProvider, tracingProvider)
 }

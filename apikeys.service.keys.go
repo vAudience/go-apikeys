@@ -21,12 +21,13 @@ type cacheEntry struct {
 // APIKeyService handles business logic for API key operations.
 // This service is framework-agnostic and can be used with any HTTP framework.
 type APIKeyService struct {
-	repo         APIKeyRepository
-	logger       *zap.Logger
-	apiKeyPrefix string
-	apiKeyLength int
-	cache        *lru.Cache[string, *cacheEntry] // LRU cache for API key lookups
-	cacheTTL     time.Duration                   // TTL for cache entries
+	repo          APIKeyRepository
+	logger        *zap.Logger
+	apiKeyPrefix  string
+	apiKeyLength  int
+	cache         *lru.Cache[string, *cacheEntry] // LRU cache for API key lookups
+	cacheTTL      time.Duration                   // TTL for cache entries
+	observability *Observability                  // Observability features (metrics, audit, tracing)
 }
 
 // NewAPIKeyService creates a new API key service.
@@ -68,10 +69,40 @@ func NewAPIKeyService(repo APIKeyRepository, logger *zap.Logger, prefix string, 
 	return service, nil
 }
 
+// SetObservability injects observability features into the service.
+// This is called by APIKeyManager after initialization.
+func (s *APIKeyService) SetObservability(obs *Observability) {
+	if obs == nil {
+		obs = NewObservability(nil, nil, nil) // Use no-op providers
+	}
+	s.observability = obs
+}
+
+// extractActorInfo extracts actor information from context.
+// Returns ActorInfo with whatever details are available from the authenticated API key in context.
+func (s *APIKeyService) extractActorInfo(ctx context.Context) ActorInfo {
+	actor := ActorInfo{}
+
+	// Try to get authenticated API key info from context (set by middleware)
+	if value := ctx.Value(contextKeyAPIKeyInfo); value != nil {
+		if apiKeyInfo, ok := value.(*APIKeyInfo); ok && apiKeyInfo != nil {
+			actor.UserID = apiKeyInfo.UserID
+			actor.OrgID = apiKeyInfo.OrgID
+			actor.APIKeyHash = apiKeyInfo.APIKeyHash
+		}
+	}
+
+	return actor
+}
+
 // CreateAPIKey creates a new API key with the given information.
 // If apiKeyInfo.APIKey is provided, it uses that key; otherwise generates a new one.
 // Returns the created APIKeyInfo with the plain-text API key (only time it's returned).
 func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) (*APIKeyInfo, error) {
+	// Start operation timing for metrics
+	startTime := time.Now()
+	actor := s.extractActorInfo(ctx)
+
 	// Validate input
 	if apiKeyInfo == nil {
 		return nil, NewValidationError("api_key_info", "cannot be nil")
@@ -83,6 +114,12 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		s.logger.Warn("API key validation failed",
 			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 			zap.Error(err))
+
+		// Record validation error metrics
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "create_key", "validation_error")
+		}
+
 		return nil, err
 	}
 
@@ -111,6 +148,12 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		s.logger.Error("Failed to generate API key hash",
 			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 			zap.Error(err))
+
+		// Record error metrics
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "create_key", "hash_generation_error")
+		}
+
 		return nil, NewInternalError("hash_generation", err)
 	}
 
@@ -126,6 +169,27 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 			zap.String(LOG_FIELD_USER_ID, apiKeyInfo.UserID),
 			zap.String(LOG_FIELD_ORG_ID, apiKeyInfo.OrgID),
 			zap.Error(err))
+
+		// Record error metrics and audit
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "create_key", "repository_error")
+
+			// Log failure audit event
+			event := &KeyLifecycleEvent{
+				BaseAuditEvent: NewBaseAuditEvent(
+					EventTypeKeyCreated,
+					actor,
+					ResourceInfo{Type: "api_key", ID: hash},
+					OutcomeFailure,
+				),
+				Operation:    "create",
+				TargetUserID: apiKeyInfo.UserID,
+				TargetOrgID:  apiKeyInfo.OrgID,
+				AfterState:   ToAuditSanitized(apiKeyInfo),
+			}
+			s.observability.Audit.LogKeyCreated(ctx, event)
+		}
+
 		return nil, err
 	}
 
@@ -134,6 +198,29 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		zap.String(LOG_FIELD_ORG_ID, apiKeyInfo.OrgID),
 		zap.String(LOG_FIELD_HASH, hash),
 		zap.String(LOG_FIELD_HINT, hint))
+
+	// Record success metrics and audit
+	if s.observability != nil {
+		latency := time.Since(startTime)
+		s.observability.Metrics.RecordOperation(ctx, "create_key", latency, map[string]string{
+			"org_id": apiKeyInfo.OrgID,
+		})
+
+		// Log success audit event
+		event := &KeyLifecycleEvent{
+			BaseAuditEvent: NewBaseAuditEvent(
+				EventTypeKeyCreated,
+				actor,
+				ResourceInfo{Type: "api_key", ID: hash, Name: apiKeyInfo.Name},
+				OutcomeSuccess,
+			),
+			Operation:    "create",
+			TargetUserID: apiKeyInfo.UserID,
+			TargetOrgID:  apiKeyInfo.OrgID,
+			AfterState:   ToAuditSanitized(apiKeyInfo),
+		}
+		s.observability.Audit.LogKeyCreated(ctx, event)
+	}
 
 	// Return a copy with the plain API key set (only time caller sees it)
 	// We must return a copy to avoid data races - the repository has a pointer
@@ -241,12 +328,22 @@ func (s *APIKeyService) GetAPIKeyInfo(ctx context.Context, apiKeyOrHash string) 
 // UpdateAPIKey updates an existing API key's information.
 // The API key hash cannot be changed - use this to update metadata, roles, etc.
 func (s *APIKeyService) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo) error {
+	// Start operation timing for metrics
+	startTime := time.Now()
+	actor := s.extractActorInfo(ctx)
+
 	// Validate input
 	if apiKeyInfo == nil {
 		return NewValidationError("api_key_info", "cannot be nil")
 	}
 	if apiKeyInfo.APIKeyHash == "" {
 		return NewValidationError("api_key_hash", "is required for updates")
+	}
+
+	// Get current state for before/after comparison (best effort)
+	var beforeState *APIKeyInfoSanitized
+	if currentInfo, err := s.repo.GetByHash(ctx, apiKeyInfo.APIKeyHash); err == nil {
+		beforeState = ToAuditSanitized(currentInfo)
 	}
 
 	// Create a defensive copy to avoid mutating the caller's data
@@ -273,6 +370,12 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		s.logger.Warn("API key validation failed",
 			zap.String("hash", apiKeyInfoCopy.APIKeyHash),
 			zap.Error(err))
+
+		// Record validation error metrics
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "update_key", "validation_error")
+		}
+
 		return err
 	}
 
@@ -285,11 +388,39 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		if IsNotFoundError(err) {
 			s.logger.Warn("API key not found for update",
 				zap.String("hash", apiKeyInfoCopy.APIKeyHash))
+
+			// Record not found error metrics
+			if s.observability != nil {
+				s.observability.Metrics.RecordOperationError(ctx, "update_key", "not_found")
+			}
+
 			return ErrAPIKeyNotFound
 		}
 		s.logger.Error("Failed to update API key",
 			zap.String("hash", apiKeyInfoCopy.APIKeyHash),
 			zap.Error(err))
+
+		// Record repository error metrics and audit
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "update_key", "repository_error")
+
+			// Log failure audit event
+			event := &KeyLifecycleEvent{
+				BaseAuditEvent: NewBaseAuditEvent(
+					EventTypeKeyUpdated,
+					actor,
+					ResourceInfo{Type: "api_key", ID: apiKeyInfoCopy.APIKeyHash},
+					OutcomeFailure,
+				),
+				Operation:    "update",
+				TargetUserID: apiKeyInfoCopy.UserID,
+				TargetOrgID:  apiKeyInfoCopy.OrgID,
+				BeforeState:  beforeState,
+				AfterState:   ToAuditSanitized(apiKeyInfoCopy),
+			}
+			s.observability.Audit.LogKeyUpdated(ctx, event)
+		}
+
 		return err
 	}
 
@@ -304,11 +435,39 @@ func (s *APIKeyService) UpdateAPIKey(ctx context.Context, apiKeyInfo *APIKeyInfo
 		zap.String("hash", apiKeyInfoCopy.APIKeyHash),
 		zap.String("user_id", apiKeyInfoCopy.UserID))
 
+	// Record success metrics and audit
+	if s.observability != nil {
+		latency := time.Since(startTime)
+		s.observability.Metrics.RecordOperation(ctx, "update_key", latency, map[string]string{
+			"org_id": apiKeyInfoCopy.OrgID,
+		})
+
+		// Log success audit event
+		event := &KeyLifecycleEvent{
+			BaseAuditEvent: NewBaseAuditEvent(
+				EventTypeKeyUpdated,
+				actor,
+				ResourceInfo{Type: "api_key", ID: apiKeyInfoCopy.APIKeyHash, Name: apiKeyInfoCopy.Name},
+				OutcomeSuccess,
+			),
+			Operation:    "update",
+			TargetUserID: apiKeyInfoCopy.UserID,
+			TargetOrgID:  apiKeyInfoCopy.OrgID,
+			BeforeState:  beforeState,
+			AfterState:   ToAuditSanitized(apiKeyInfoCopy),
+		}
+		s.observability.Audit.LogKeyUpdated(ctx, event)
+	}
+
 	return nil
 }
 
 // DeleteAPIKey deletes an API key by its plain key or hash.
 func (s *APIKeyService) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) error {
+	// Start operation timing for metrics
+	startTime := time.Now()
+	actor := s.extractActorInfo(ctx)
+
 	// Validate input
 	if apiKeyOrHash == "" {
 		return ErrAPIKeyRequired
@@ -324,11 +483,26 @@ func (s *APIKeyService) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 		if err != nil {
 			s.logger.Error("Failed to hash API key",
 				zap.Error(err))
+
+			// Record error metrics
+			if s.observability != nil {
+				s.observability.Metrics.RecordOperationError(ctx, "delete_key", "hash_generation_error")
+			}
+
 			return NewInternalError("hash_generation", err)
 		}
 	} else {
 		// It's already a hash
 		hash = apiKeyOrHash
+	}
+
+	// Get current state for audit trail (best effort)
+	var beforeState *APIKeyInfoSanitized
+	var targetUserID, targetOrgID string
+	if currentInfo, err := s.repo.GetByHash(ctx, hash); err == nil {
+		beforeState = ToAuditSanitized(currentInfo)
+		targetUserID = currentInfo.UserID
+		targetOrgID = currentInfo.OrgID
 	}
 
 	// Delete from repository
@@ -337,11 +511,38 @@ func (s *APIKeyService) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 		if IsNotFoundError(err) {
 			s.logger.Warn("API key not found for deletion",
 				zap.String("hash", hash))
+
+			// Record not found error metrics
+			if s.observability != nil {
+				s.observability.Metrics.RecordOperationError(ctx, "delete_key", "not_found")
+			}
+
 			return ErrAPIKeyNotFound
 		}
 		s.logger.Error("Failed to delete API key",
 			zap.String("hash", hash),
 			zap.Error(err))
+
+		// Record repository error metrics and audit
+		if s.observability != nil {
+			s.observability.Metrics.RecordOperationError(ctx, "delete_key", "repository_error")
+
+			// Log failure audit event
+			event := &KeyLifecycleEvent{
+				BaseAuditEvent: NewBaseAuditEvent(
+					EventTypeKeyDeleted,
+					actor,
+					ResourceInfo{Type: "api_key", ID: hash},
+					OutcomeFailure,
+				),
+				Operation:    "delete",
+				TargetUserID: targetUserID,
+				TargetOrgID:  targetOrgID,
+				BeforeState:  beforeState,
+			}
+			s.observability.Audit.LogKeyDeleted(ctx, event)
+		}
+
 		return err
 	}
 
@@ -354,6 +555,29 @@ func (s *APIKeyService) DeleteAPIKey(ctx context.Context, apiKeyOrHash string) e
 
 	s.logger.Info("API key deleted",
 		zap.String("hash", hash))
+
+	// Record success metrics and audit
+	if s.observability != nil {
+		latency := time.Since(startTime)
+		s.observability.Metrics.RecordOperation(ctx, "delete_key", latency, map[string]string{
+			"org_id": targetOrgID,
+		})
+
+		// Log success audit event
+		event := &KeyLifecycleEvent{
+			BaseAuditEvent: NewBaseAuditEvent(
+				EventTypeKeyDeleted,
+				actor,
+				ResourceInfo{Type: "api_key", ID: hash},
+				OutcomeSuccess,
+			),
+			Operation:    "delete",
+			TargetUserID: targetUserID,
+			TargetOrgID:  targetOrgID,
+			BeforeState:  beforeState,
+		}
+		s.observability.Audit.LogKeyDeleted(ctx, event)
+	}
 
 	return nil
 }
